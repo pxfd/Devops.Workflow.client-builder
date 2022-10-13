@@ -403,8 +403,6 @@ jobs:
       - name: Get build status
         if: always()
         id: build_status
-        env:
-          notif_file_name: ${{ fromJSON(steps.build_yaml.outputs.content).build_notification_file_name }}
         run: |
           if [[ ${{ job.status }} == success ]]
           then
@@ -415,6 +413,13 @@ jobs:
             echo "::set-output name=build_status_color::danger"
           fi
 
+      # Splited from "Get build status" in case of problem with steps.build_yaml.outputs.content or build_notification_file_name
+      - name: Get notification file content
+        if: always()
+        id: notification_content
+        env:
+          notif_file_name: ${{ fromJSON(steps.build_yaml.outputs.content).build_notification_file_name }}
+        run: |
           if [ -f "${{ env.notif_file_name }}" ]; then
             echo "::set-output name=build_app_download_info::$(sed 's/$/\\n/' ${{ env.notif_file_name }} | tr -d '\n')"
           else
@@ -440,7 +445,7 @@ jobs:
                     {
                       "type": "mrkdwn",
                       "short": true,
-                      "value": "Build <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|*#${{ github.run_number }}*> -  *${{ steps.build_status.outputs.build_status}}* - ${{ github.workflow }}\nUser: *${{ github.triggering_actor }}*\nVersion: *${{ steps.project_config.outputs.BUNDLE_VERSION }}*\nBranch: *${{ inputs.repository_client_branch }}*\nConfiguration: *${{ inputs.build_config_key }}*\n\n${{ steps.build_status.outputs.build_app_download_info}}"
+                      "value": "Build <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|*#${{ github.run_number }}*> -  *${{ steps.build_status.outputs.build_status}}* - ${{ github.workflow }}\nUser: *${{ github.triggering_actor }}*\nVersion: *${{ steps.project_config.outputs.BUNDLE_VERSION }}*\nBranch: *${{ inputs.repository_client_branch }}*\nConfiguration: *${{ inputs.build_config_key }}*\n\n${{ steps.notification_content.outputs.build_app_download_info}}"
                     }
                   ]
                 }
