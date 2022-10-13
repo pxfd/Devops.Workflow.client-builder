@@ -1,0 +1,471 @@
+name: client_builder_reusable_workflow
+
+# Controls when the workflow will run
+on:
+  workflow_call:
+    inputs:
+      # if null, concurrency will be set to unique number, means disabled
+      concurrency_group:
+        required: false
+        type: string
+      runs_on:
+        required: true
+        type: string
+      # we want to send message to slack channel as soon as possible. So we need it right at the beginning of the workflow
+      slack_channel_id:
+        required: true
+        type: string
+      vault_addr:
+        required: true
+        type: string
+      vault_secrets:
+        required: true
+        type: string
+      build_property_file_path:
+        required: true
+        type: string
+      secrets_dir:
+        required: false
+        type: string
+        default: 'secrets'
+      content_dir:
+        required: false
+        type: string
+        default: 'content'
+      # only if workflow is in other repository
+      workflow_dir:
+        required: false
+        type: string
+        default: 'workflow'
+      # TODO if ampty, do not use cache
+      cache_dir:
+        required: true
+        type: string
+      project:
+        required: true
+        type: string
+      repository_client:
+        required: true
+        type: string
+      repository_client_branch:
+        required: true
+        type: string
+      repository_client_fetch_depth:
+        required: false
+        type: string
+        default: 1
+      repository_workflow:
+        type: string
+        default: ''
+      repository_workflow_branch:
+        type: string
+        default: 'main'
+      build_config_key:
+        required: true
+        type: string
+      build_target:
+        required: true
+        type: string
+      development_options:
+        type: string
+        default: 'disabled'
+      upload_options:
+        type: string
+        default: 'disabled'
+      clear_folder:
+        type: string
+        default: 'disabled'
+      push_addressables_to_git:
+        type: boolean
+        default: true
+      # include_alt_unity_tester:
+      #   type: boolean
+      #   default: false
+      build_number:
+        type: string
+        default: ''
+
+jobs:
+  # This workflow contains a single job called "build"
+  build:
+    concurrency:
+      group: ${{ inputs.concurrency_group || github.run_id }}
+    runs-on: ${{ fromJSON(inputs.runs_on) }}
+
+    steps:
+      # Setup env variables which needs some sort of calculation or are based on other env variables
+      - name: Setup Env
+        id: env
+        env:
+          BRANCH: ${{ inputs.repository_client_branch }}
+          PROJECT: ${{ inputs.project}}
+          ENVIRONMENT: ${{ contains(inputs.build_config_key, 'prod') && 'Prod' || 'Dev' }}
+          PLATFORM: ${{ contains(inputs.build_config_key, 'apple') && 'Apple' || 'Google' }}
+        run: |
+          echo "platform=${PLATFORM}" >> $GITHUB_ENV
+          echo "environment=${ENVIRONMENT}" >> $GITHUB_ENV
+          echo "app_dir=${PROJECT}_${ENVIRONMENT}_${{ inputs.build_config_key }}" >> $GITHUB_ENV
+          echo "cache_file=${{ inputs.cache_dir }}/${PROJECT}_${ENVIRONMENT}_${BRANCH}_${PLATFORM}.tar.zst" >> $GITHUB_ENV
+
+      # Start notification thread
+      - name: Post message to Slack - Start thread
+        id: slackToken
+        uses: slackapi/slack-github-action@v1.22.0
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+        with:
+          channel-id: ${{ inputs.slack_channel_id }}
+          payload: |
+            {
+              "attachments": [
+                {
+                  "fallback": "Build ${{ env.app_dir }} *STARTED*",
+                  "color": "good",
+                  "fields": [
+                    {
+                      "type": "mrkdwn",
+                      "short": true,
+                      "value": "Build <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|*#${{ github.run_number }}*> -  *STARTED* - ${{ github.workflow }}\n User: *${{ github.triggering_actor }}*\nBranch: *${{ inputs.repository_client_branch }}*\nConfiguration: *${{ inputs.build_config_key }}*"
+                    }
+                  ]
+                }
+              ]
+            }
+
+      # Import secrets and files from vault. Files are base64 encoded, we will decode them later
+      - name: Import Secrets
+        id: secrets
+        uses: hashicorp/vault-action@v2.4.2
+        with:
+          url: ${{ inputs.vault_addr }}
+          method: approle
+          roleId: ${{ secrets.CLIENT_VAULT_ROLE_ID }}
+          secretId: ${{ secrets.CLIENT_VAULT_SECRET_ID }}
+          secrets: ${{ inputs.vault_secrets }}
+
+      # We want to persist imported git repository to unity as cache file and use it with any runner on the current host
+      # This step restores such a cache file if exits
+      - name: Restore cache - Client
+        if: ${{ inputs.clear_folder != 'project' }}
+        run: |
+          if [ -f "${{ env.cache_file }}" ]; then
+            time tar --zstd -xf ${cache_file}
+          else
+            echo "Cache file \"${{ env.cache_file }}\" does not exits."
+          fi
+
+      # Clone repository. "repository" and "ssh-key" parameters are not needed if workflow is in the same repository
+      - name: Clone action - Client
+        uses: actions/checkout@v3
+        with:
+          repository: ${{ inputs.repository_client }}
+          ref: ${{ inputs.repository_client_branch }}
+          lfs: true
+          clean: false
+          fetch-depth: ${{ inputs.repository_client_fetch_depth }}
+          ssh-key: "${{ steps.secrets.outputs.ssh_key }}"
+          path: ${{ env.app_dir }}
+
+      - name: Clone action - Workflow repository
+        if: ${{ inputs.repository_workflow != '' }}
+        uses: actions/checkout@v3
+        with:
+          repository: ${{ inputs.repository_workflow }}
+          ref: ${{ inputs.repository_workflow_branch }}
+          ssh-key: "${{ steps.secrets.outputs.ssh_key }}"
+          path: ${{ inputs.workflow_dir }}
+
+      - name: Read deployement property file
+        id: build_yaml
+        uses: pixelfederation/gh-action-yaml-to-json@v0.0.3
+        with:
+          file: ${{ inputs.build_property_file_path }}
+          validate_keys: |
+            $.property_file_name_api
+            $.property_file_name_env
+            $.property_file_name_project
+            $.content_repository
+            $.content_repository_branch
+            $.dvc_cache_root
+            $.s3_builds_bucket
+            $.build_execute_method
+            $.build_outputs_dir
+            $.build_outputs_archive_public_path_prefix
+            $.build_outputs_archive_public_download_path_prefix
+            $.build_cleanup_options
+            $.build_notification_file_name
+            $.build_dvc_managed_addressables_dir
+            $.keychain_name
+
+      - name: Unlock Keychain
+        run: |
+          security unlock-keychain -p "${{ steps.secrets.outputs.keychain_pwd }}" ${{ fromJSON(steps.build_yaml.outputs.content).keychain_name }}
+
+      # Decode and save secrets an properties files imported from vault
+      - name: Preprare properties/secrets files
+        env:
+          SECRETS_DIR: ${{ github.workspace }}/${{ inputs.secrets_dir }}
+        run: |
+          mkdir -p $SECRETS_DIR
+          echo "${{ steps.secrets.outputs.api }}" | base64 -d > $SECRETS_DIR/${{ fromJSON(steps.build_yaml.outputs.content).property_file_name_api }}
+          echo "${{ steps.secrets.outputs.env }}" | base64 -d > $SECRETS_DIR/${{ fromJSON(steps.build_yaml.outputs.content).property_file_name_env }}
+          echo "${{ steps.secrets.outputs.project }}" | base64 -d > $SECRETS_DIR/${{ fromJSON(steps.build_yaml.outputs.content).property_file_name_project }}
+
+          # Update path to current runner
+          sed -i.bkp 's#AndroidPublisherServiceAccountKeyPath.*#AndroidPublisherServiceAccountKeyPath=${{ env.SECRETS_DIR }}/${{ fromJSON(steps.build_yaml.outputs.content).property_file_name_api }}#g' $SECRETS_DIR/${{ fromJSON(steps.build_yaml.outputs.content).property_file_name_project }}
+
+      - name: Clone action - Content
+        uses: actions/checkout@v3
+        with:
+          repository: ${{ fromJSON(steps.build_yaml.outputs.content).content_repository }}
+          ref: ${{ fromJSON(steps.build_yaml.outputs.content).content_repository_branch }}
+          clean: false
+          ssh-key: "${{ steps.secrets.outputs.ssh_key }}"
+          path: ${{ inputs.content_dir }}
+
+      - name: Clone action - Content DVC
+        working-directory: ${{ inputs.content_dir }}
+        run: |
+          dvc config --local cache.dir ${{ fromJSON(steps.build_yaml.outputs.content).dvc_cache_root }}/${{ inputs.project }}
+          dvc pull
+
+      - name: S3 - Get build number
+        working-directory: ${{ env.app_dir }}
+        if: ${{ inputs.build_number == '' }}
+        run: |
+          aws s3 cp "s3://${{ fromJSON(steps.build_yaml.outputs.content).s3_builds_bucket }}/builds/${{ inputs.project }}/${{ env.environment }}_${{ env.platform }}_build_number.txt" build_number.txt
+
+      # Increment and upload build number even if build fails
+      - name: S3 - Increment & update build number
+        working-directory: ${{ env.app_dir }}
+        run: |
+          if [[ "${{ inputs.build_number }}" != "" ]]; then
+            echo "${{ inputs.build_number }}" > build_number.txt
+          else
+            build=$(cat build_number.txt)
+            build=$(( build + 1 ))
+            echo $build > build_number.txt
+          fi
+          aws s3 cp build_number.txt "s3://${{ fromJSON(steps.build_yaml.outputs.content).s3_builds_bucket }}/builds/${{ inputs.project }}/${{ env.environment }}_${{ env.platform }}_build_number.txt"
+          build_number=$(cat build_number.txt)
+          echo "build_number=${build_number}" >> $GITHUB_ENV
+
+      - name: S3 - Get last build commit
+        working-directory: ${{ env.app_dir }}
+        run: |
+          aws s3 cp "s3://${{ fromJSON(steps.build_yaml.outputs.content).s3_builds_bucket }}/builds/${{ inputs.project }}/${{ env.environment }}_${{ env.platform }}_last_build_commit.txt" last_build_commit.txt 2>/dev/null|| not_exist=true
+          if [ $not_exist ]; then
+            echo "File \"last_build_commit.txt\" does not exists. Create it with \"HEAD~1\""
+            git rev-parse "HEAD~1" > last_build_commit.txt
+          fi
+
+      - name: Clean Library
+        working-directory: ${{ env.app_dir }}
+        if: ${{ inputs.clear_folder == 'library' }}
+        run: |
+          rm -rf ./Library/
+
+      - name: Project Configuration
+        id: project_config
+        working-directory: ${{ env.app_dir }}
+        run: |
+          BUNDLE_VERSION=$(cat ./Assets/UnityTools/VersionConfig.asset | grep bundleVersion: | grep -oE "([0-9]{1,}\\.)+[0-9]{1,}")
+          UNITY_VERSION=$(cat ./ProjectSettings/ProjectVersion.txt | grep m_EditorVersion: | grep -oE "([0-9]{1,}\\.)+[0-9abf]{1,}")
+          echo "::set-output name=UNITY_VERSION::${UNITY_VERSION}"
+          echo "::set-output name=BUNDLE_VERSION::${BUNDLE_VERSION}"
+          echo "archive_path=${{ env.platform }}/${{ env.environment }}/${BUNDLE_VERSION}" >> $GITHUB_ENV
+
+      # Update slack with BUNDLE_VERSION
+      - name: Post message to Slack - Update with version
+        uses: slackapi/slack-github-action@v1.22.0
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+        with:
+          channel-id: ${{ inputs.slack_channel_id }}
+          update-ts: "${{ steps.slackToken.outputs.ts }}"
+          payload: |
+            {
+              "attachments": [
+                {
+                  "fallback": "Build ${{ env.app_dir }} STARTED",
+                  "color": "good",
+                  "fields": [
+                    {
+                      "type": "mrkdwn",
+                      "short": true,
+                      "value": "Build <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|*#${{ github.run_number }}*> -  STARTED - ${{ github.workflow }}\n User: *${{ github.triggering_actor }}*\nVersion: *${{ steps.project_config.outputs.BUNDLE_VERSION }}*\nBranch: *${{ inputs.repository_client_branch }}*\nConfiguration: *${{ inputs.build_config_key }}*"
+                    }
+                  ]
+                }
+              ]
+            }
+
+      # Force recompile editor scripts + remove content update asset
+      - name: Remove some project files
+        working-directory: ${{ env.app_dir }}
+        run: |
+          rm -r -f ./Library/ScriptAssemblies/
+          if [ -f ./Assets/AddressableAssetsData/AssetGroups/ContentUpdate.asset ] ; then
+            rm -f ./Assets/AddressableAssetsData/AssetGroups/ContentUpdate.asset*
+          fi
+
+      - name: Generate changelog
+        id: changelog
+        working-directory: ${{ env.app_dir }}
+        run: |
+          if [ -f last_build_commit.txt ]; then
+            last_build_commit=$(cat last_build_commit.txt)
+            changelog=$(git log --oneline --no-merges $last_build_commit..HEAD)
+            echo "::set-output name=changelog::${changelog}"
+          fi
+
+      - name: Post message to Slack - Add changelog to thread
+        if: ${{ steps.changelog.outputs.changelog != '' }}
+        uses: slackapi/slack-github-action@v1.22.0
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+        with:
+          channel-id: ${{ inputs.slack_channel_id }}
+          payload: |
+            {
+              "thread_ts": "${{ steps.slackToken.outputs.thread_ts }}",
+              "attachments": [
+                {
+                  "color": "grey",
+                  "fields": [
+                    {
+                      "value": "${{ steps.changelog.outputs.changelog }}"
+                    }
+                  ]
+                }
+              ]
+            }
+
+      - name: Build
+        working-directory: ${{ env.app_dir }}
+        env:
+          SECRETS_DIR: ${{ github.workspace }}/${{ inputs.secrets_dir }}
+          UNITY_PATH: ${{ format('/Applications/Unity/Hub/Editor/{0}/Unity.app/Contents/MacOS/Unity', steps.project_config.outputs.UNITY_VERSION) }}
+        run: |
+          set -o pipefail
+
+          $UNITY_PATH  \
+          -logfile - \
+          -nographics \
+          -batchmode \
+          -buildTarget ${{ inputs.build_target }} \
+          -projectPath ./ \
+          -executeMethod ${{ fromJSON(steps.build_yaml.outputs.content).build_execute_method }} \
+          -exportPath "${{ fromJSON(steps.build_yaml.outputs.content).build_outputs_dir }}/export" \
+          -archivePath "${{ fromJSON(steps.build_yaml.outputs.content).build_outputs_dir }}/archive/${{ env.archive_path }}" \
+          -archivePublicPath "${{ fromJSON(steps.build_yaml.outputs.content).build_outputs_archive_public_path_prefix }}/${{ inputs.project }}/${{ env.platform }}/${{ env.environment }}/${{ steps.project_config.outputs.BUNDLE_VERSION }}" \
+          -archivePublicDownloadPath "${{ fromJSON(steps.build_yaml.outputs.content).build_outputs_archive_public_download_path_prefix }}/${{ inputs.project }}/${{ env.platform }}/${{ env.environment }}/${{ steps.project_config.outputs.BUNDLE_VERSION }}" \
+          -buildConfigKey ${{ inputs.build_config_key }} \
+          -developmentOptions ${{ inputs.development_options }} \
+          -uploadOptions ${{ inputs.upload_options }} \
+          -environmentPropertiesFilePath $SECRETS_DIR/${{ fromJSON(steps.build_yaml.outputs.content).property_file_name_env }} \
+          -secretsPropertiesFilePath $SECRETS_DIR/${{ fromJSON(steps.build_yaml.outputs.content).property_file_name_project }} \
+          -cleanupOptions ${{ fromJSON(steps.build_yaml.outputs.content).build_cleanup_options }} \
+          -notificationDataPath "../${{ fromJSON(steps.build_yaml.outputs.content).build_notification_file_name }}" \
+          -addressablesBuildPath "../${{ inputs.content_dir }}" \
+          -buildNumber ${{ env.build_number }} \
+          | tee -a "${{ fromJSON(steps.build_yaml.outputs.content).build_outputs_dir }}/logs/${{ inputs.build_config_key }}_run-${GITHUB_RUN_NUMBER}_att-${GITHUB_RUN_ATTEMPT}.log"
+
+      - name: S3 - Save & upload last build commit
+        working-directory: ${{ env.app_dir }}
+        run: |
+          echo "$(git rev-parse HEAD)" > last_build_commit.txt
+          aws s3 cp last_build_commit.txt "s3://${{ fromJSON(steps.build_yaml.outputs.content).s3_builds_bucket }}/builds/${{ inputs.project }}/${{ env.environment }}_${{ env.platform }}_last_build_commit.txt"
+
+      # We want to persist imported git repository to unity as cache file and use it with any runner on the current host
+      # This step saves repository to a cache file for later usage
+      # We plan to run it as action post hook
+      - name: Save cache - Client
+        if: always()
+        run: |
+          time tar --zstd -cf ${{ env.cache_file }} ${{ env.app_dir }}
+
+      - name: Sync to S3
+        run: |
+          aws s3 sync "${{ fromJSON(steps.build_yaml.outputs.content).build_outputs_dir }}/archive" "s3://client-builder/builds/${{ inputs.project }}" --exclude "*.DS_Store"
+
+      - name: Push Addressables
+        if: ${{ inputs.push_addressables_to_git }}
+        working-directory: ${{ inputs.content_dir }}
+        run: |
+          git pull
+          dvc add ${{ fromJSON(steps.build_yaml.outputs.content).build_dvc_managed_addressables_dir }}
+          git add -A
+          git diff-index --quiet HEAD || git commit -m "[${{ github.workflow }}][${{ github.run_number }}]postBuildCommit"
+          dvc push
+          git push
+
+      - name: Get build status
+        if: always()
+        id: build_status
+        env:
+          notif_file_name: ${{ fromJSON(steps.build_yaml.outputs.content).build_notification_file_name }}
+        run: |
+          if [[ ${{ job.status }} == success ]]
+          then
+            echo "::set-output name=build_status::SUCCESSED"
+            echo "::set-output name=build_status_color::good"
+          else
+            echo "::set-output name=build_status::FAILED"
+            echo "::set-output name=build_status_color::danger"
+          fi
+
+          if [ -f "${{ env.notif_file_name }}" ]; then
+            echo "::set-output name=build_app_download_info::$(sed 's/$/\\n/' ${{ env.notif_file_name }} | tr -d '\n')"
+          else
+            echo "::set-output name=build_app_download_info::"
+          fi
+
+      # Update with status
+      - name: Post message to Slack - Update with build status
+        if: always()
+        uses: slackapi/slack-github-action@v1.22.0
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+        with:
+          channel-id: ${{ inputs.slack_channel_id }}
+          update-ts: "${{ steps.slackToken.outputs.ts }}"
+          payload: |
+            {
+              "attachments": [
+                {
+                  "fallback": "Build ${{ env.app_dir }}\nStatus: *${{ steps.build_status.outputs.build_status}}*",
+                  "color": "${{ steps.build_status.outputs.build_status_color}}",
+                  "fields": [
+                    {
+                      "type": "mrkdwn",
+                      "short": true,
+                      "value": "Build <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|*#${{ github.run_number }}*> -  *${{ steps.build_status.outputs.build_status}}* - ${{ github.workflow }}\nUser: *${{ github.triggering_actor }}*\nVersion: *${{ steps.project_config.outputs.BUNDLE_VERSION }}*\nBranch: *${{ inputs.repository_client_branch }}*\nConfiguration: *${{ inputs.build_config_key }}*\n\n${{ steps.build_status.outputs.build_app_download_info}}"
+                    }
+                  ]
+                }
+              ]
+            }
+
+      - name: Post message to Slack - Add build result to thread
+        if: always()
+        uses: slackapi/slack-github-action@v1.22.0
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+        with:
+          channel-id: ${{ inputs.slack_channel_id }}
+          payload: |
+            {
+              "thread_ts": "${{ steps.slackToken.outputs.thread_ts }}",
+              "attachments": [
+                {
+                  "fallback": "Build finished\nStatus: *${{ steps.build_status.outputs.build_status }}*",
+                  "color": "${{ steps.build_status.outputs.build_status_color}}",
+                  "fields": [
+                    {
+                      "value": "Build finished\nStatus: *${{ steps.build_status.outputs.build_status }}*"
+                    }
+                  ]
+                }
+              ]
+            }
