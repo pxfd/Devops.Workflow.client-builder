@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.1.2 - 2022-10-13 ]
+- Add dependabot
+- Bump dependencies
+
 ## [0.1.1 - 2022-10-13 ]
 - Add fallback to notifcation file
 
