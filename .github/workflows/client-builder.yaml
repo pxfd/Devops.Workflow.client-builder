@@ -110,7 +110,7 @@ jobs:
       # Start notification thread
       - name: Post message to Slack - Start thread
         id: slackToken
-        uses: slackapi/slack-github-action@v1.22.0
+        uses: slackapi/slack-github-action@v1.23.0
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
         with:
@@ -277,7 +277,7 @@ jobs:
 
       # Update slack with BUNDLE_VERSION
       - name: Post message to Slack - Update with version
-        uses: slackapi/slack-github-action@v1.22.0
+        uses: slackapi/slack-github-action@v1.23.0
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
         with:
@@ -321,7 +321,7 @@ jobs:
 
       - name: Post message to Slack - Add changelog to thread
         if: ${{ steps.changelog.outputs.changelog != '' }}
-        uses: slackapi/slack-github-action@v1.22.0
+        uses: slackapi/slack-github-action@v1.23.0
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
         with:
@@ -429,7 +429,7 @@ jobs:
       # Update with status
       - name: Post message to Slack - Update with build status
         if: always()
-        uses: slackapi/slack-github-action@v1.22.0
+        uses: slackapi/slack-github-action@v1.23.0
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
         with:
@@ -454,7 +454,7 @@ jobs:
 
       - name: Post message to Slack - Add build result to thread
         if: always()
-        uses: slackapi/slack-github-action@v1.22.0
+        uses: slackapi/slack-github-action@v1.23.0
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
         with:
