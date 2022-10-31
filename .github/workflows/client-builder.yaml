@@ -397,6 +397,8 @@ jobs:
           dvc add ${{ fromJSON(steps.build_yaml.outputs.content).build_dvc_managed_addressables_dir }}
           git add -A
           git diff-index --quiet HEAD || git commit -m "[${{ github.workflow }}][${{ github.run_number }}]postBuildCommit"
+          git tag ${{ env.environment }} HEAD
+          git push origin ${{ env.environment }}
           dvc push
           git push
 
