@@ -233,7 +233,7 @@ jobs:
         working-directory: ${{ env.app_dir }}
         if: ${{ inputs.build_number == '' }}
         run: |
-          aws s3 cp "s3://${{ fromJSON(steps.build_yaml.outputs.content).s3_builds_bucket }}/builds/${{ inputs.project }}/${{ env.environment }}_${{ env.platform }}_build_number.txt" build_number.txt
+          aws s3 cp "s3://${{ fromJSON(steps.build_yaml.outputs.content).s3_builds_bucket }}/builds/${{ inputs.project }}/${{ env.platform }}_build_number.txt" build_number.txt
 
       # Increment and upload build number even if build fails
       - name: S3 - Increment & update build number
@@ -246,7 +246,7 @@ jobs:
             build=$(( build + 1 ))
             echo $build > build_number.txt
           fi
-          aws s3 cp build_number.txt "s3://${{ fromJSON(steps.build_yaml.outputs.content).s3_builds_bucket }}/builds/${{ inputs.project }}/${{ env.environment }}_${{ env.platform }}_build_number.txt"
+          aws s3 cp build_number.txt "s3://${{ fromJSON(steps.build_yaml.outputs.content).s3_builds_bucket }}/builds/${{ inputs.project }}/${{ env.platform }}_build_number.txt"
           build_number=$(cat build_number.txt)
           echo "build_number=${build_number}" >> $GITHUB_ENV
 
