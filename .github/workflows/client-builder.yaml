@@ -315,7 +315,7 @@ jobs:
         run: |
           if [ -f last_build_commit.txt ]; then
             last_build_commit=$(cat last_build_commit.txt)
-            changelog=$(git log --oneline --no-merges $last_build_commit..HEAD)
+            changelog=$(git log --oneline --no-merges $last_build_commit..HEAD || echo "Unable to generate changelog from the commit ${last_build_commit}")
             echo "::set-output name=changelog::${changelog}"
           fi
 
