@@ -1,5 +1,8 @@
 # Changelog
 
+## [0.1.6 - 2022-11-07 ]
+- Prevent workflow fails if there is slash char '/' in branch name
+
 ## [0.1.5 - 2022-11-07 ]
 - Prevent workflow fails if there is a problem with git changelog diff
 

@@ -105,7 +105,7 @@ jobs:
           echo "platform=${PLATFORM}" >> $GITHUB_ENV
           echo "environment=${ENVIRONMENT}" >> $GITHUB_ENV
           echo "app_dir=${PROJECT}_${ENVIRONMENT}_${{ inputs.build_config_key }}" >> $GITHUB_ENV
-          echo "cache_file=${{ inputs.cache_dir }}/${PROJECT}_${ENVIRONMENT}_${BRANCH}_${PLATFORM}.tar.zst" >> $GITHUB_ENV
+          echo "cache_file=${{ inputs.cache_dir }}/${PROJECT}_${ENVIRONMENT}_${BRANCH//\//_}_${PLATFORM}.tar.zst" >> $GITHUB_ENV
 
       # Start notification thread
       - name: Post message to Slack - Start thread
