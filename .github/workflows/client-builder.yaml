@@ -102,10 +102,11 @@ jobs:
           ENVIRONMENT: ${{ contains(inputs.build_config_key, 'prod') && 'Prod' || 'Dev' }}
           PLATFORM: ${{ contains(inputs.build_config_key, 'apple') && 'Apple' || 'Google' }}
         run: |
-          echo "platform=${PLATFORM}" >> $GITHUB_ENV
-          echo "environment=${ENVIRONMENT}" >> $GITHUB_ENV
-          echo "app_dir=${PROJECT}_${ENVIRONMENT}_${{ inputs.build_config_key }}" >> $GITHUB_ENV
-          echo "cache_file=${{ inputs.cache_dir }}/${PROJECT}_${ENVIRONMENT}_${BRANCH//\//_}_${PLATFORM}.tar.zst" >> $GITHUB_ENV
+          echo "platform=${PLATFORM}" >> $GITHUB_OUTPUT
+          echo "environment=${ENVIRONMENT}" >> $GITHUB_OUTPUT
+          echo "app_dir=${PROJECT}_${ENVIRONMENT}_${BRANCH//\//_}_${{ inputs.build_config_key }}" >> $GITHUB_OUTPUT
+          echo "cache_file=${{ inputs.cache_dir }}/${PROJECT}_${ENVIRONMENT}_${BRANCH//\//_}_${PLATFORM}.tar.zst" >> $GITHUB_OUTPUT
+          echo "last_build_commit_file=${{ env.ENVIRONMENT }}_${BRANCH//\//_}_${{ env.PLATFORM }}_last_build_commit.txt" >> $GITHUB_OUTPUT
 
       # Start notification thread
       - name: Post message to Slack - Start thread
@@ -113,13 +114,14 @@ jobs:
         uses: slackapi/slack-github-action@v1.23.0
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          APP_DIR: ${{ steps.env.outputs.app_dir }}
         with:
           channel-id: ${{ inputs.slack_channel_id }}
           payload: |
             {
               "attachments": [
                 {
-                  "fallback": "Build ${{ env.app_dir }} *STARTED*",
+                  "fallback": "Build ${{ env.APP_DIR }} *STARTED*",
                   "color": "good",
                   "fields": [
                     {
@@ -135,7 +137,7 @@ jobs:
       # Import secrets and files from vault. Files are base64 encoded, we will decode them later
       - name: Import Secrets
         id: secrets
-        uses: hashicorp/vault-action@v2.4.2
+        uses: hashicorp/vault-action@v2.4.3
         with:
           url: ${{ inputs.vault_addr }}
           method: approle
@@ -147,16 +149,20 @@ jobs:
       # This step restores such a cache file if exits
       - name: Restore cache - Client
         if: ${{ inputs.clear_folder != 'project' }}
+        env:
+          CACHE_FILE: ${{ steps.env.outputs.cache_file }}
         run: |
-          if [ -f "${{ env.cache_file }}" ]; then
-            time tar --zstd -xf ${cache_file}
+          if [ -f "${{ env.CACHE_FILE }}" ]; then
+            time tar --zstd -xf ${{ env.CACHE_FILE }}
           else
-            echo "Cache file \"${{ env.cache_file }}\" does not exits."
+            echo "Cache file \"${{ env.CACHE_FILE }}\" does not exits."
           fi
 
       # Clone repository. "repository" and "ssh-key" parameters are not needed if workflow is in the same repository
       - name: Clone action - Client
         uses: actions/checkout@v3
+        env:
+          APP_DIR: ${{ steps.env.outputs.app_dir }}
         with:
           repository: ${{ inputs.repository_client }}
           ref: ${{ inputs.repository_client_branch }}
@@ -164,7 +170,7 @@ jobs:
           clean: false
           fetch-depth: ${{ inputs.repository_client_fetch_depth }}
           ssh-key: "${{ steps.secrets.outputs.ssh_key }}"
-          path: ${{ env.app_dir }}
+          path: ${{ env.APP_DIR }}
 
       - name: Clone action - Workflow repository
         if: ${{ inputs.repository_workflow != '' }}
@@ -230,14 +236,21 @@ jobs:
           dvc pull
 
       - name: S3 - Get build number
-        working-directory: ${{ env.app_dir }}
+        working-directory: ${{ env.APP_DIR }}
         if: ${{ inputs.build_number == '' }}
+        env:
+          PLATFORM: ${{ steps.env.outputs.platform }}
+          APP_DIR: ${{ steps.env.outputs.app_dir }}
         run: |
-          aws s3 cp "s3://${{ fromJSON(steps.build_yaml.outputs.content).s3_builds_bucket }}/builds/${{ inputs.project }}/${{ env.platform }}_build_number.txt" build_number.txt
+          aws s3 cp "s3://${{ fromJSON(steps.build_yaml.outputs.content).s3_builds_bucket }}/builds/${{ inputs.project }}/builds_data/${{ env.PLATFORM }}_build_number.txt" build_number.txt
 
       # Increment and upload build number even if build fails
       - name: S3 - Increment & update build number
-        working-directory: ${{ env.app_dir }}
+        id: build_number
+        working-directory: ${{ env.APP_DIR }}
+        env:
+          PLATFORM: ${{ steps.env.outputs.platform }}
+          APP_DIR: ${{ steps.env.outputs.app_dir }}
         run: |
           if [[ "${{ inputs.build_number }}" != "" ]]; then
             echo "${{ inputs.build_number }}" > build_number.txt
@@ -246,40 +259,52 @@ jobs:
             build=$(( build + 1 ))
             echo $build > build_number.txt
           fi
-          aws s3 cp build_number.txt "s3://${{ fromJSON(steps.build_yaml.outputs.content).s3_builds_bucket }}/builds/${{ inputs.project }}/${{ env.platform }}_build_number.txt"
+          aws s3 cp build_number.txt "s3://${{ fromJSON(steps.build_yaml.outputs.content).s3_builds_bucket }}/builds/${{ inputs.project }}/builds_data/${{ env.PLATFORM }}_build_number.txt"
           build_number=$(cat build_number.txt)
-          echo "build_number=${build_number}" >> $GITHUB_ENV
+          echo "build_number=${build_number}" >> $GITHUB_OUTPUT
 
       - name: S3 - Get last build commit
-        working-directory: ${{ env.app_dir }}
+        working-directory: ${{ env.APP_DIR }}
+        env:
+          PLATFORM: ${{ steps.env.outputs.platform }}
+          ENVIRONMENT: ${{ steps.env.outputs.environment }}
+          APP_DIR: ${{ steps.env.outputs.app_dir }}
+          LAST_BUILD_COMMIT_FILE: ${{ steps.env.outputs.last_build_commit_file }}
         run: |
-          aws s3 cp "s3://${{ fromJSON(steps.build_yaml.outputs.content).s3_builds_bucket }}/builds/${{ inputs.project }}/${{ env.environment }}_${{ env.platform }}_last_build_commit.txt" last_build_commit.txt 2>/dev/null|| not_exist=true
+          aws s3 cp "s3://${{ fromJSON(steps.build_yaml.outputs.content).s3_builds_bucket }}/builds/${{ inputs.project }}/builds_data/${{ env.LAST_BUILD_COMMIT_FILE }}" ${{ env.LAST_BUILD_COMMIT_FILE }} 2>/dev/null|| not_exist=true
           if [ $not_exist ]; then
-            echo "File \"last_build_commit.txt\" does not exists. Create it with \"HEAD~1\""
-            git rev-parse "HEAD~1" > last_build_commit.txt
+            echo "File \"${{ env.LAST_BUILD_COMMIT_FILE }}\" does not exists. Create it with \"HEAD~1\""
+            git rev-parse "HEAD~1" > ${{ env.LAST_BUILD_COMMIT_FILE }}
           fi
 
       - name: Clean Library
-        working-directory: ${{ env.app_dir }}
+        working-directory: ${{ env.APP_DIR }}
         if: ${{ inputs.clear_folder == 'library' }}
+        env:
+          APP_DIR: ${{ steps.env.outputs.app_dir }}
         run: |
           rm -rf ./Library/
 
       - name: Project Configuration
         id: project_config
-        working-directory: ${{ env.app_dir }}
+        working-directory: ${{ env.APP_DIR }}
+        env:
+          PLATFORM: ${{ steps.env.outputs.platform }}
+          ENVIRONMENT: ${{ steps.env.outputs.environment }}
+          APP_DIR: ${{ steps.env.outputs.app_dir }}
         run: |
           BUNDLE_VERSION=$(cat ./Assets/UnityTools/VersionConfig.asset | grep bundleVersion: | grep -oE "([0-9]{1,}\\.)+[0-9]{1,}")
           UNITY_VERSION=$(cat ./ProjectSettings/ProjectVersion.txt | grep m_EditorVersion: | grep -oE "([0-9]{1,}\\.)+[0-9abf]{1,}")
-          echo "::set-output name=UNITY_VERSION::${UNITY_VERSION}"
-          echo "::set-output name=BUNDLE_VERSION::${BUNDLE_VERSION}"
-          echo "archive_path=${{ env.platform }}/${{ env.environment }}/${BUNDLE_VERSION}" >> $GITHUB_ENV
+          echo "UNITY_VERSION=${UNITY_VERSION}" >> $GITHUB_OUTPUT
+          echo "BUNDLE_VERSION=${BUNDLE_VERSION}" >> $GITHUB_OUTPUT
+          echo "archive_path=${{ env.PLATFORM }}/${{ env.ENVIRONMENT }}/${BUNDLE_VERSION}" >> $GITHUB_OUTPUT
 
       # Update slack with BUNDLE_VERSION
       - name: Post message to Slack - Update with version
         uses: slackapi/slack-github-action@v1.23.0
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          APP_DIR: ${{ steps.env.outputs.app_dir }}
         with:
           channel-id: ${{ inputs.slack_channel_id }}
           update-ts: "${{ steps.slackToken.outputs.ts }}"
@@ -287,13 +312,13 @@ jobs:
             {
               "attachments": [
                 {
-                  "fallback": "Build ${{ env.app_dir }} STARTED",
+                  "fallback": "Build ${{ env.APP_DIR }} *STARTED*",
                   "color": "good",
                   "fields": [
                     {
                       "type": "mrkdwn",
                       "short": true,
-                      "value": "Build <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|*#${{ github.run_number }}*> -  STARTED - ${{ github.workflow }}\n User: *${{ github.triggering_actor }}*\nVersion: *${{ steps.project_config.outputs.BUNDLE_VERSION }}*\nBranch: *${{ inputs.repository_client_branch }}*\nConfiguration: *${{ inputs.build_config_key }}*"
+                      "value": "Build <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|*#${{ github.run_number }}*> - *STARTED* - ${{ github.workflow }}\n User: *${{ github.triggering_actor }}*\nVersion: *${{ steps.project_config.outputs.BUNDLE_VERSION }}*\nBranch: *${{ inputs.repository_client_branch }}*\nConfiguration: *${{ inputs.build_config_key }}*"
                     }
                   ]
                 }
@@ -302,7 +327,9 @@ jobs:
 
       # Force recompile editor scripts + remove content update asset
       - name: Remove some project files
-        working-directory: ${{ env.app_dir }}
+        working-directory: ${{ env.APP_DIR }}
+        env:
+          APP_DIR: ${{ steps.env.outputs.app_dir }}
         run: |
           rm -r -f ./Library/ScriptAssemblies/
           if [ -f ./Assets/AddressableAssetsData/AssetGroups/ContentUpdate.asset ] ; then
@@ -311,41 +338,44 @@ jobs:
 
       - name: Generate changelog
         id: changelog
-        working-directory: ${{ env.app_dir }}
+        working-directory: ${{ env.APP_DIR }}
+        env:
+          APP_DIR: ${{ steps.env.outputs.app_dir }}
+          LAST_BUILD_COMMIT_FILE: ${{ steps.env.outputs.last_build_commit_file }}
         run: |
-          if [ -f last_build_commit.txt ]; then
-            last_build_commit=$(cat last_build_commit.txt)
+          if [ -f "${{ env.LAST_BUILD_COMMIT_FILE }}" ]; then
+            last_build_commit=$(cat ${{ env.LAST_BUILD_COMMIT_FILE }})
             changelog=$(git log --oneline --no-merges $last_build_commit..HEAD || echo "Unable to generate changelog from the commit ${last_build_commit}")
-            echo "::set-output name=changelog::${changelog}"
+
+            if [ -z "$(echo "${changelog}" | tr -d "[:blank:]")" ]; then
+              echo "changelog=false" >> $GITHUB_OUTPUT
+            else
+              echo "changelog=true" >> $GITHUB_OUTPUT
+            fi
+
+            printf "{\"thread_ts\": \"${{ steps.slackToken.outputs.thread_ts }}\",\"attachments\": [{\"color\": \"grey\",\"fields\": [{\"value\": \"%s\"}]}]}" "${changelog//$'\n'/\\n}" >../slack.msg
+
           fi
 
       - name: Post message to Slack - Add changelog to thread
-        if: ${{ steps.changelog.outputs.changelog != '' }}
+        if: ${{ steps.changelog.outputs.changelog == 'true' }}
         uses: slackapi/slack-github-action@v1.23.0
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
         with:
           channel-id: ${{ inputs.slack_channel_id }}
-          payload: |
-            {
-              "thread_ts": "${{ steps.slackToken.outputs.thread_ts }}",
-              "attachments": [
-                {
-                  "color": "grey",
-                  "fields": [
-                    {
-                      "value": "${{ steps.changelog.outputs.changelog }}"
-                    }
-                  ]
-                }
-              ]
-            }
+          payload-file-path: slack.msg
 
       - name: Build
-        working-directory: ${{ env.app_dir }}
+        working-directory: ${{ env.APP_DIR }}
         env:
           SECRETS_DIR: ${{ github.workspace }}/${{ inputs.secrets_dir }}
           UNITY_PATH: ${{ format('/Applications/Unity/Hub/Editor/{0}/Unity.app/Contents/MacOS/Unity', steps.project_config.outputs.UNITY_VERSION) }}
+          PLATFORM: ${{ steps.env.outputs.platform }}
+          ENVIRONMENT: ${{ steps.env.outputs.environment }}
+          APP_DIR: ${{ steps.env.outputs.app_dir }}
+          ARCHIVE_PATH: ${{ steps.project_config.outputs.archive_path }}
+          BUILD_NUMBER: ${{ steps.build_number.outputs.build_number }}
         run: |
           set -o pipefail
 
@@ -357,9 +387,9 @@ jobs:
           -projectPath ./ \
           -executeMethod ${{ fromJSON(steps.build_yaml.outputs.content).build_execute_method }} \
           -exportPath "${{ fromJSON(steps.build_yaml.outputs.content).build_outputs_dir }}/export" \
-          -archivePath "${{ fromJSON(steps.build_yaml.outputs.content).build_outputs_dir }}/archive/${{ env.archive_path }}" \
-          -archivePublicPath "${{ fromJSON(steps.build_yaml.outputs.content).build_outputs_archive_public_path_prefix }}/${{ inputs.project }}/${{ env.platform }}/${{ env.environment }}/${{ steps.project_config.outputs.BUNDLE_VERSION }}" \
-          -archivePublicDownloadPath "${{ fromJSON(steps.build_yaml.outputs.content).build_outputs_archive_public_download_path_prefix }}/${{ inputs.project }}/${{ env.platform }}/${{ env.environment }}/${{ steps.project_config.outputs.BUNDLE_VERSION }}" \
+          -archivePath "${{ fromJSON(steps.build_yaml.outputs.content).build_outputs_dir }}/archive/${{ env.ARCHIVE_PATH }}" \
+          -archivePublicPath "${{ fromJSON(steps.build_yaml.outputs.content).build_outputs_archive_public_path_prefix }}/${{ inputs.project }}/${{ env.PLATFORM }}/${{ env.ENVIRONMENT }}/${{ steps.project_config.outputs.BUNDLE_VERSION }}" \
+          -archivePublicDownloadPath "${{ fromJSON(steps.build_yaml.outputs.content).build_outputs_archive_public_download_path_prefix }}/${{ inputs.project }}/${{ env.PLATFORM }}/${{ env.ENVIRONMENT }}/${{ steps.project_config.outputs.BUNDLE_VERSION }}" \
           -buildConfigKey ${{ inputs.build_config_key }} \
           -developmentOptions ${{ inputs.development_options }} \
           -uploadOptions ${{ inputs.upload_options }} \
@@ -368,22 +398,30 @@ jobs:
           -cleanupOptions ${{ fromJSON(steps.build_yaml.outputs.content).build_cleanup_options }} \
           -notificationDataPath "../${{ fromJSON(steps.build_yaml.outputs.content).build_notification_file_name }}" \
           -addressablesBuildPath "../${{ inputs.content_dir }}" \
-          -buildNumber ${{ env.build_number }} \
+          -buildNumber ${{ env.BUILD_NUMBER }} \
           | tee -a "${{ fromJSON(steps.build_yaml.outputs.content).build_outputs_dir }}/logs/${{ inputs.build_config_key }}_run-${GITHUB_RUN_NUMBER}_att-${GITHUB_RUN_ATTEMPT}.log"
 
       - name: S3 - Save & upload last build commit
-        working-directory: ${{ env.app_dir }}
+        working-directory: ${{ env.APP_DIR }}
+        env:
+          PLATFORM: ${{ steps.env.outputs.platform }}
+          ENVIRONMENT: ${{ steps.env.outputs.environment }}
+          APP_DIR: ${{ steps.env.outputs.app_dir }}
+          LAST_BUILD_COMMIT_FILE: ${{ steps.env.outputs.last_build_commit_file }}
         run: |
-          echo "$(git rev-parse HEAD)" > last_build_commit.txt
-          aws s3 cp last_build_commit.txt "s3://${{ fromJSON(steps.build_yaml.outputs.content).s3_builds_bucket }}/builds/${{ inputs.project }}/${{ env.environment }}_${{ env.platform }}_last_build_commit.txt"
+          echo "$(git rev-parse HEAD)" > ${{ env.LAST_BUILD_COMMIT_FILE }}
+          aws s3 cp ${{ env.LAST_BUILD_COMMIT_FILE }} "s3://${{ fromJSON(steps.build_yaml.outputs.content).s3_builds_bucket }}/builds/${{ inputs.project }}/builds_data/${{ env.LAST_BUILD_COMMIT_FILE }}"
 
       # We want to persist imported git repository to unity as cache file and use it with any runner on the current host
       # This step saves repository to a cache file for later usage
       # We plan to run it as action post hook
       - name: Save cache - Client
         if: always()
+        env:
+          APP_DIR: ${{ steps.env.outputs.app_dir }}
+          CACHE_FILE: ${{ steps.env.outputs.cache_file }}
         run: |
-          time tar --zstd -cf ${{ env.cache_file }} ${{ env.app_dir }}
+          time tar --zstd -cf ${{ env.CACHE_FILE }} ${{ env.APP_DIR }}
 
       - name: Sync to S3
         run: |
@@ -392,11 +430,13 @@ jobs:
       - name: Push Addressables
         if: ${{ inputs.push_addressables_to_git }}
         working-directory: ${{ inputs.content_dir }}
+        env:
+          ENVIRONMENT: ${{ steps.env.outputs.environment }}
         run: |
           git pull
           dvc add ${{ fromJSON(steps.build_yaml.outputs.content).build_dvc_managed_addressables_dir }}
           git add -A
-          git diff-index --quiet HEAD || (git commit -m "[${{ github.workflow }}][${{ github.run_number }}] postBuildCommit"; git tag -f ${{ env.environment }} HEAD; git push -f origin ${{ env.environment }})
+          git diff-index --quiet HEAD || (git commit -m "[${{ github.workflow }}][${{ github.run_number }}] postBuildCommit"; git tag -f ${{ env.ENVIRONMENT }} HEAD; git push -f origin ${{ env.ENVIRONMENT }})
           dvc push
           git push
 
@@ -406,11 +446,11 @@ jobs:
         run: |
           if [[ ${{ job.status }} == success ]]
           then
-            echo "::set-output name=build_status::SUCCESSED"
-            echo "::set-output name=build_status_color::good"
+            echo "build_status=build_status" >> $GITHUB_OUTPUT
+            echo "build_status_color=good" >> $GITHUB_OUTPUT
           else
-            echo "::set-output name=build_status::FAILED"
-            echo "::set-output name=build_status_color::danger"
+            echo "build_status=FAILED" >> $GITHUB_OUTPUT
+            echo "build_status_color=danger" >> $GITHUB_OUTPUT
           fi
 
       # Splited from "Get build status" in case of problem with steps.build_yaml.outputs.content or build_notification_file_name
@@ -418,12 +458,12 @@ jobs:
         if: always()
         id: notification_content
         env:
-          notif_file_name: ${{ fromJSON(steps.build_yaml.outputs.content).build_notification_file_name }}
+          NOTIF_FILE_NAME: ${{ fromJSON(steps.build_yaml.outputs.content).build_notification_file_name }}
         run: |
-          if [ -f "${{ env.notif_file_name }}" ]; then
-            echo "::set-output name=build_app_download_info::$(sed 's/$/\\n/' ${{ env.notif_file_name }} | tr -d '\n')"
+          if [ -f "${{ env.NOTIF_FILE_NAME }}" ]; then
+            echo "build_app_download_info=$(sed 's/$/\\n/' ${{ env.NOTIF_FILE_NAME }} | tr -d '\n')" >> $GITHUB_OUTPUT
           else
-            echo "::set-output name=build_app_download_info::"
+            echo "build_app_download_info=" >> $GITHUB_OUTPUT
           fi
 
       # Update with status
@@ -432,6 +472,7 @@ jobs:
         uses: slackapi/slack-github-action@v1.23.0
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          APP_DIR: ${{ steps.env.outputs.app_dir }}
         with:
           channel-id: ${{ inputs.slack_channel_id }}
           update-ts: "${{ steps.slackToken.outputs.ts }}"
@@ -439,7 +480,7 @@ jobs:
             {
               "attachments": [
                 {
-                  "fallback": "Build ${{ env.app_dir }}\nStatus: *${{ steps.build_status.outputs.build_status}}*",
+                  "fallback": "Build ${{ env.APP_DIR }}\nStatus: *${{ steps.build_status.outputs.build_status}}*",
                   "color": "${{ steps.build_status.outputs.build_status_color}}",
                   "fields": [
                     {

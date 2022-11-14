@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.2.0 - 2022-11-14 ]
+- Add branch name to git checkout directory to prevent code mix from various branches when cleanup script fails. E.g. runner hangs, workflow abort.
+- Migrate from "set-output" to "GITHUB_OUTPUT"
+- Last build commit per git branch
+- All environment variables as upper case
+- Move build data to `builds_data` subfolder
+- Fix multiline changelog slack message
+- Bump hashicorp/vault-action to v2.4.3
+
 ## [0.1.6 - 2022-11-07 ]
 - Prevent workflow fails if there is slash char '/' in branch name
 
