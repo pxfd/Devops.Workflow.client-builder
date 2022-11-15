@@ -229,11 +229,13 @@ jobs:
           ssh-key: "${{ steps.secrets.outputs.ssh_key }}"
           path: ${{ inputs.content_dir }}
 
-      - name: Clone action - Content DVC
+      - name: Clone action - Content DVC Addressables
         working-directory: ${{ inputs.content_dir }}
+        env:
+          ENVIRONMENT: ${{ steps.env.outputs.environment }}
         run: |
           dvc config --local cache.dir ${{ fromJSON(steps.build_yaml.outputs.content).dvc_cache_root }}/${{ inputs.project }}
-          dvc pull
+          dvc pull ${{ env.ENVIRONMENT }}/${{ fromJSON(steps.build_yaml.outputs.content).build_dvc_managed_addressables_dir }}
 
       - name: S3 - Get build number
         working-directory: ${{ env.APP_DIR }}
@@ -397,7 +399,7 @@ jobs:
           -secretsPropertiesFilePath $SECRETS_DIR/${{ fromJSON(steps.build_yaml.outputs.content).property_file_name_project }} \
           -cleanupOptions ${{ fromJSON(steps.build_yaml.outputs.content).build_cleanup_options }} \
           -notificationDataPath "../${{ fromJSON(steps.build_yaml.outputs.content).build_notification_file_name }}" \
-          -addressablesBuildPath "../${{ inputs.content_dir }}" \
+          -addressablesBuildPath "../${{ inputs.content_dir }}/${{ env.ENVIRONMENT }}" \
           -buildNumber ${{ env.BUILD_NUMBER }} \
           | tee -a "${{ fromJSON(steps.build_yaml.outputs.content).build_outputs_dir }}/logs/${{ inputs.build_config_key }}_run-${GITHUB_RUN_NUMBER}_att-${GITHUB_RUN_ATTEMPT}.log"
 
@@ -434,10 +436,10 @@ jobs:
           ENVIRONMENT: ${{ steps.env.outputs.environment }}
         run: |
           git pull
-          dvc add ${{ fromJSON(steps.build_yaml.outputs.content).build_dvc_managed_addressables_dir }}
+          dvc add ${{ env.ENVIRONMENT }}/${{ fromJSON(steps.build_yaml.outputs.content).build_dvc_managed_addressables_dir }}
           git add -A
           git diff-index --quiet HEAD || (git commit -m "[${{ github.workflow }}][${{ github.run_number }}] postBuildCommit"; git tag -f ${{ env.ENVIRONMENT }} HEAD; git push -f origin ${{ env.ENVIRONMENT }})
-          dvc push
+          dvc push ${{ env.ENVIRONMENT }}/${{ fromJSON(steps.build_yaml.outputs.content).build_dvc_managed_addressables_dir }}
           git push
 
       - name: Get build status
