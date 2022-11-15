@@ -1,5 +1,8 @@
 # Changelog
 
+## [0.2.1 - 2022-11-15 ]
+- Fix build status slack message
+
 ## [0.2.0 - 2022-11-14 ]
 - Add branch name to git checkout directory to prevent code mix from various branches when cleanup script fails. E.g. runner hangs, workflow abort.
 - Migrate from "set-output" to "GITHUB_OUTPUT"

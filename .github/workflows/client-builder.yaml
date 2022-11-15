@@ -446,7 +446,7 @@ jobs:
         run: |
           if [[ ${{ job.status }} == success ]]
           then
-            echo "build_status=build_status" >> $GITHUB_OUTPUT
+            echo "build_status=SUCCESSED" >> $GITHUB_OUTPUT
             echo "build_status_color=good" >> $GITHUB_OUTPUT
           else
             echo "build_status=FAILED" >> $GITHUB_OUTPUT
