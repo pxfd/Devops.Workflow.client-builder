@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.2.3 - 2022-11-17 ]
+- Replace double quotes with single quotes in commit messages
+
+## [0.2.2 - 2022-11-15 ]
+- Separate dvc data related to env
+
 ## [0.2.1 - 2022-11-15 ]
 - Fix build status slack message
 

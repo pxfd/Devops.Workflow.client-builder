@@ -347,7 +347,7 @@ jobs:
         run: |
           if [ -f "${{ env.LAST_BUILD_COMMIT_FILE }}" ]; then
             last_build_commit=$(cat ${{ env.LAST_BUILD_COMMIT_FILE }})
-            changelog=$(git log --oneline --no-merges $last_build_commit..HEAD || echo "Unable to generate changelog from the commit ${last_build_commit}")
+            changelog=$((set -o pipefail; git log --oneline --no-merges $last_build_commit..HEAD | tr '"' "'") || echo "Unable to generate changelog from the commit ${last_build_commit}")
 
             if [ -z "$(echo "${changelog}" | tr -d "[:blank:]")" ]; then
               echo "changelog=false" >> $GITHUB_OUTPUT
