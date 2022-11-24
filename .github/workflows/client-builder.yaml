@@ -183,7 +183,7 @@ jobs:
 
       - name: Read deployement property file
         id: build_yaml
-        uses: pixelfederation/gh-action-yaml-to-json@v0.0.3
+        uses: pixelfederation/gh-action-yaml-to-json@v0.0.4
         with:
           file: ${{ inputs.build_property_file_path }}
           validate_keys: |
