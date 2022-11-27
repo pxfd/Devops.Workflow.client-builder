@@ -367,7 +367,6 @@ jobs:
           payload: |
             {
               "thread_ts": "${{ steps.slackToken.outputs.thread_ts }}",
-              "text": "Content cannot be rendered",
               "attachments": [
                 {
                   "color": "grey",
