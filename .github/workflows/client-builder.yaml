@@ -32,11 +32,6 @@ on:
         required: false
         type: string
         default: 'content'
-      # only if workflow is in other repository
-      workflow_dir:
-        required: false
-        type: string
-        default: 'workflow'
       # TODO if ampty, do not use cache
       cache_dir:
         required: true
@@ -54,12 +49,6 @@ on:
         required: false
         type: string
         default: 1
-      repository_workflow:
-        type: string
-        default: ''
-      repository_workflow_branch:
-        type: string
-        default: 'main'
       build_config_key:
         required: true
         type: string
@@ -172,20 +161,13 @@ jobs:
           ssh-key: "${{ steps.secrets.outputs.ssh_key }}"
           path: ${{ env.APP_DIR }}
 
-      - name: Clone action - Workflow repository
-        if: ${{ inputs.repository_workflow != '' }}
-        uses: actions/checkout@v3
-        with:
-          repository: ${{ inputs.repository_workflow }}
-          ref: ${{ inputs.repository_workflow_branch }}
-          ssh-key: "${{ steps.secrets.outputs.ssh_key }}"
-          path: ${{ inputs.workflow_dir }}
-
       - name: Read deployement property file
         id: build_yaml
         uses: pixelfederation/gh-action-yaml-to-json@v0.0.4
+        env:
+          APP_DIR: ${{ steps.env.outputs.app_dir }}
         with:
-          file: ${{ inputs.build_property_file_path }}
+          file: ${{ env.APP_DIR }}/${{ inputs.build_property_file_path }}
           validate_keys: |
             $.property_file_name_api
             $.property_file_name_env
