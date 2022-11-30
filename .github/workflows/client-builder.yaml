@@ -322,6 +322,7 @@ jobs:
 
       - name: Generate changelog
         id: changelog
+        continue-on-error: true
         working-directory: ${{ env.APP_DIR }}
         env:
           APP_DIR: ${{ steps.env.outputs.app_dir }}
@@ -341,6 +342,7 @@ jobs:
 
       - name: Post message to Slack - Add changelog to thread
         if: ${{ steps.changelog.outputs.changelog == 'true' }}
+        continue-on-error: true
         uses: slackapi/slack-github-action@v1.23.0
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
