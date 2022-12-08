@@ -67,9 +67,12 @@ on:
       push_addressables_to_git:
         type: boolean
         default: true
-      # include_alt_unity_tester:
-      #   type: boolean
-      #   default: false
+      include_alt_unity_tester:
+        type: boolean
+        default: false
+      tests_job:
+        type: string
+        default: ''
       build_number:
         type: string
         default: ''
@@ -241,7 +244,7 @@ jobs:
           else
             build=$(cat build_number.txt)
             build=$(( build + 1 ))
-            echo $build > build_number.txt
+            echo ${build} > build_number.txt
           fi
           aws s3 cp build_number.txt "s3://${{ fromJSON(steps.build_yaml.outputs.content).s3_builds_bucket }}/builds/${{ inputs.project }}/builds_data/${{ env.PLATFORM }}_build_number.txt"
           build_number=$(cat build_number.txt)
@@ -256,7 +259,7 @@ jobs:
           LAST_BUILD_COMMIT_FILE: ${{ steps.env.outputs.last_build_commit_file }}
         run: |
           aws s3 cp "s3://${{ fromJSON(steps.build_yaml.outputs.content).s3_builds_bucket }}/builds/${{ inputs.project }}/builds_data/${{ env.LAST_BUILD_COMMIT_FILE }}" ${{ env.LAST_BUILD_COMMIT_FILE }} 2>/dev/null|| not_exist=true
-          if [ $not_exist ]; then
+          if [ ${not_exist} ]; then
             echo "File \"${{ env.LAST_BUILD_COMMIT_FILE }}\" does not exists. Create it with \"HEAD~1\""
             git rev-parse "HEAD~1" > ${{ env.LAST_BUILD_COMMIT_FILE }}
           fi
@@ -315,10 +318,23 @@ jobs:
         env:
           APP_DIR: ${{ steps.env.outputs.app_dir }}
         run: |
-          rm -r -f ./Library/ScriptAssemblies/
+          rm -rf ./Library/ScriptAssemblies/
+
+          # Check if content update asset exists and remove it together with meta file
           if [ -f ./Assets/AddressableAssetsData/AssetGroups/ContentUpdate.asset ] ; then
             rm -f ./Assets/AddressableAssetsData/AssetGroups/ContentUpdate.asset*
           fi
+
+          # Check if csc.rsp exists and if it is not in git repo then remove it together with meta file
+          if [ -f ./Assets/csc.rsp ] ; then
+            git ls-files --error-unmatch ./Assets/csc.rsp || rm -f ./Assets/csc.rsp*
+          fi
+
+      - name: Prepare Tests
+        if: ${{ inputs.include_alt_unity_tester }}
+        working-directory: ${{ env.APP_DIR }}
+        run: |
+          echo "-define:ALTUNITYTESTER" > ./Assets/csc.rsp
 
       - name: Generate changelog
         id: changelog
@@ -463,6 +479,15 @@ jobs:
           else
             echo "build_app_download_info=" >> $GITHUB_OUTPUT
           fi
+
+      - name: Run Tests
+        if: ${{ inputs.include_alt_unity_tester }}
+        env:
+          PLATFORM: ${{ steps.env.outputs.platform }}
+          ENVIRONMENT: ${{ steps.env.outputs.environment }}
+          BUILD_NUMBER: ${{ steps.build_number.outputs.build_number }}
+        run: |
+          curl -s -H 'Content-Type: application/json' --data-raw '{ "appUrlPath": "builds/${{ inputs.project }}/${{ env.PLATFORM }}/${{ env.ENVIRONMENT }}/${{ inputs.project }}-${{ steps.project_config.outputs.BUNDLE_VERSION }}-v${{ env.BUILD_NUMBER }}.apk", "appEnv": "${{ env.ENVIRONMENT }}", "actor": "${{ github.actor }}", "slackThreadId": "${{ steps.slackToken.outputs.thread_ts }}" }' -X POST "${{ inputs.tests_job }}" 2>&1
 
       # Update with status
       - name: Post message to Slack - Update with build status
