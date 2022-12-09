@@ -1,6 +1,5 @@
 name: client_builder_reusable_workflow
 
-# Controls when the workflow will run
 on:
   workflow_call:
     inputs:
@@ -32,7 +31,6 @@ on:
         required: false
         type: string
         default: 'content'
-      # TODO if ampty, do not use cache
       cache_dir:
         required: true
         type: string
@@ -73,6 +71,12 @@ on:
       tests_job:
         type: string
         default: ''
+      update_addressables_only:
+        type: boolean
+        default: false
+      content_state_file:
+        type: string
+        default: ''
       build_number:
         type: string
         default: ''
@@ -86,19 +90,21 @@ jobs:
 
     steps:
       # Setup env variables which needs some sort of calculation or are based on other env variables
-      - name: Setup Env
+      - name: Setup env
         id: env
         env:
           BRANCH: ${{ inputs.repository_client_branch }}
           PROJECT: ${{ inputs.project}}
           ENVIRONMENT: ${{ contains(inputs.build_config_key, 'prod') && 'Prod' || 'Dev' }}
           PLATFORM: ${{ contains(inputs.build_config_key, 'apple') && 'Apple' || 'Google' }}
+          BUILD_OR_UPDATE: ${{ update_addressables_only && 'Content Update' || 'Build' }}
         run: |
           echo "platform=${PLATFORM}" >> $GITHUB_OUTPUT
           echo "environment=${ENVIRONMENT}" >> $GITHUB_OUTPUT
           echo "app_dir=${PROJECT}_${ENVIRONMENT}_${BRANCH//\//_}_${{ inputs.build_config_key }}" >> $GITHUB_OUTPUT
           echo "cache_file=${{ inputs.cache_dir }}/${PROJECT}_${ENVIRONMENT}_${BRANCH//\//_}_${PLATFORM}.tar.zst" >> $GITHUB_OUTPUT
           echo "last_build_commit_file=${{ env.ENVIRONMENT }}_${BRANCH//\//_}_${{ env.PLATFORM }}_last_build_commit.txt" >> $GITHUB_OUTPUT
+          echo "build_or_update=${BUILD_OR_UPDATE}" >> $GITHUB_OUTPUT
 
       # Start notification thread
       - name: Post message to Slack - Start thread
@@ -107,19 +113,20 @@ jobs:
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           APP_DIR: ${{ steps.env.outputs.app_dir }}
+          BUILD_OR_UPDATE: ${{ steps.env.outputs.build_or_update }}
         with:
           channel-id: ${{ inputs.slack_channel_id }}
           payload: |
             {
               "attachments": [
                 {
-                  "fallback": "Build ${{ env.APP_DIR }} *STARTED*",
+                  "fallback": "${{ env.BUILD_OR_UPDATE }} ${{ env.APP_DIR }} *STARTED*",
                   "color": "good",
                   "fields": [
                     {
                       "type": "mrkdwn",
                       "short": true,
-                      "value": "Build <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|*#${{ github.run_number }}*> -  *STARTED* - ${{ github.workflow }}\n User: *${{ github.triggering_actor }}*\nBranch: *${{ inputs.repository_client_branch }}*\nConfiguration: *${{ inputs.build_config_key }}*"
+                      "value": "${{ env.BUILD_OR_UPDATE }} <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|*#${{ github.run_number }}*> -  *STARTED* - ${{ github.workflow }}\n User: *${{ github.triggering_actor }}*\nBranch: *${{ inputs.repository_client_branch }}*\nConfiguration: *${{ inputs.build_config_key }}*"
                     }
                   ]
                 }
@@ -127,7 +134,7 @@ jobs:
             }
 
       # Import secrets and files from vault. Files are base64 encoded, we will decode them later
-      - name: Import Secrets
+      - name: Import secrets
         id: secrets
         uses: hashicorp/vault-action@v2.4.3
         with:
@@ -179,6 +186,7 @@ jobs:
             $.content_repository_branch
             $.dvc_cache_root
             $.s3_builds_bucket
+            $.update_addressables_method
             $.build_execute_method
             $.build_outputs_dir
             $.build_outputs_archive_public_path_prefix
@@ -188,7 +196,7 @@ jobs:
             $.build_dvc_managed_addressables_dir
             $.keychain_name
 
-      - name: Unlock Keychain
+      - name: Unlock keychain
         run: |
           security unlock-keychain -p "${{ steps.secrets.outputs.keychain_pwd }}" ${{ fromJSON(steps.build_yaml.outputs.content).keychain_name }}
 
@@ -264,7 +272,7 @@ jobs:
             git rev-parse "HEAD~1" > ${{ env.LAST_BUILD_COMMIT_FILE }}
           fi
 
-      - name: Clean Library
+      - name: Clean library
         working-directory: ${{ env.APP_DIR }}
         if: ${{ inputs.clear_folder == 'library' }}
         env:
@@ -272,7 +280,7 @@ jobs:
         run: |
           rm -rf ./Library/
 
-      - name: Project Configuration
+      - name: Project configuration
         id: project_config
         working-directory: ${{ env.APP_DIR }}
         env:
@@ -280,7 +288,14 @@ jobs:
           ENVIRONMENT: ${{ steps.env.outputs.environment }}
           APP_DIR: ${{ steps.env.outputs.app_dir }}
         run: |
-          BUNDLE_VERSION=$(cat ./Assets/UnityTools/VersionConfig.asset | grep bundleVersion: | grep -oE "([0-9]{1,}\\.)+[0-9]{1,}")
+          if [[ "${{ steps.env.outputs.build_or_update }}" == 'Build' ]]; then
+            BUNDLE_VERSION=$(cat ./Assets/UnityTools/VersionConfig.asset | grep bundleVersion: | grep -oE "([0-9]{1,}\\.)+[0-9]{1,}")
+          elif [[ "${{ inputs.content_state_file }}" != '' ]]; then
+            BUNDLE_VERSION=$(echo "${{ inputs.content_state_file }}" | awk -F '-' '{print $2}')
+          else
+            echo "BUNDLE_VERSION not defined" && exit 1
+          fi
+
           UNITY_VERSION=$(cat ./ProjectSettings/ProjectVersion.txt | grep m_EditorVersion: | grep -oE "([0-9]{1,}\\.)+[0-9abf]{1,}")
           echo "UNITY_VERSION=${UNITY_VERSION}" >> $GITHUB_OUTPUT
           echo "BUNDLE_VERSION=${BUNDLE_VERSION}" >> $GITHUB_OUTPUT
@@ -299,13 +314,13 @@ jobs:
             {
               "attachments": [
                 {
-                  "fallback": "Build ${{ env.APP_DIR }} *STARTED*",
+                  "fallback": "${{ env.BUILD_OR_UPDATE }} ${{ env.APP_DIR }} *STARTED*",
                   "color": "good",
                   "fields": [
                     {
                       "type": "mrkdwn",
                       "short": true,
-                      "value": "Build <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|*#${{ github.run_number }}*> - *STARTED* - ${{ github.workflow }}\n User: *${{ github.triggering_actor }}*\nVersion: *${{ steps.project_config.outputs.BUNDLE_VERSION }}*\nBranch: *${{ inputs.repository_client_branch }}*\nConfiguration: *${{ inputs.build_config_key }}*"
+                      "value": "${{ env.BUILD_OR_UPDATE }} <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|*#${{ github.run_number }}*> - *STARTED* - ${{ github.workflow }}\n User: *${{ github.triggering_actor }}*\nVersion: *${{ steps.project_config.outputs.BUNDLE_VERSION }}*\nBranch: *${{ inputs.repository_client_branch }}*\nConfiguration: *${{ inputs.build_config_key }}*"
                     }
                   ]
                 }
@@ -330,7 +345,7 @@ jobs:
             git ls-files --error-unmatch ./Assets/csc.rsp || rm -f ./Assets/csc.rsp*
           fi
 
-      - name: Prepare Tests
+      - name: Prepare tests
         if: ${{ inputs.include_alt_unity_tester }}
         working-directory: ${{ env.APP_DIR }}
         run: |
@@ -380,7 +395,29 @@ jobs:
               ]
             }
 
+      - name: Update addressables
+        if: ${{ steps.env.outputs.build_or_update == 'Content Update' }}
+        working-directory: ${{ env.APP_DIR }}
+        env:
+          PLATFORM: ${{ steps.env.outputs.platform }}
+          ENVIRONMENT: ${{ steps.env.outputs.environment }}
+        run: |
+          set -o pipefail
+
+          $UNITY_PATH  \
+          -logfile - \
+          -nographics \
+          -batchmode \
+          -buildTarget ${{ inputs.build_target }} \
+          -projectPath ./ \
+          -executeMethod ${{ fromJSON(steps.build_yaml.outputs.content).update_addressables_method }} \
+          -buildConfigKey ${{ inputs.build_config_key }} \
+          -addressablesContentStateFilePaths "${{ fromJSON(steps.build_yaml.outputs.content).build_outputs_dir }}/archive/${{ env.PLATFORM }}/${{ env.ENVIRONMENT }}/${{ steps.project_config.outputs.BUNDLE_VERSION }}/${{ inputs.content_state_file }}" \
+          -addressablesBuildPath "../${{ inputs.content_dir }}/${{ env.ENVIRONMENT }}" \
+          | tee -a "${{ fromJSON(steps.build_yaml.outputs.content).build_outputs_dir }}/logs/${{ inputs.build_config_key }}_run-${GITHUB_RUN_NUMBER}_att-${GITHUB_RUN_ATTEMPT}.log"
+
       - name: Build
+        if: ${{ steps.env.outputs.build_or_update == 'Build' }}
         working-directory: ${{ env.APP_DIR }}
         env:
           SECRETS_DIR: ${{ github.workspace }}/${{ inputs.secrets_dir }}
@@ -441,7 +478,7 @@ jobs:
         run: |
           aws s3 sync "${{ fromJSON(steps.build_yaml.outputs.content).build_outputs_dir }}/archive" "s3://client-builder/builds/${{ inputs.project }}" --exclude "*.DS_Store"
 
-      - name: Push Addressables
+      - name: Push addressables
         if: ${{ inputs.push_addressables_to_git }}
         working-directory: ${{ inputs.content_dir }}
         env:
@@ -480,7 +517,7 @@ jobs:
             echo "build_app_download_info=" >> $GITHUB_OUTPUT
           fi
 
-      - name: Run Tests
+      - name: Run tests
         if: ${{ inputs.include_alt_unity_tester }}
         env:
           PLATFORM: ${{ steps.env.outputs.platform }}
@@ -496,6 +533,7 @@ jobs:
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           APP_DIR: ${{ steps.env.outputs.app_dir }}
+          BUILD_OR_UPDATE: ${{ steps.env.outputs.build_or_update }}
         with:
           channel-id: ${{ inputs.slack_channel_id }}
           update-ts: "${{ steps.slackToken.outputs.ts }}"
@@ -503,24 +541,25 @@ jobs:
             {
               "attachments": [
                 {
-                  "fallback": "Build ${{ env.APP_DIR }}\nStatus: *${{ steps.build_status.outputs.build_status}}*",
+                  "fallback": "${{ env.BUILD_OR_UPDATE }} ${{ env.APP_DIR }}\nStatus: *${{ steps.build_status.outputs.build_status}}*",
                   "color": "${{ steps.build_status.outputs.build_status_color}}",
                   "fields": [
                     {
                       "type": "mrkdwn",
                       "short": true,
-                      "value": "Build <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|*#${{ github.run_number }}*> -  *${{ steps.build_status.outputs.build_status}}* - ${{ github.workflow }}\nUser: *${{ github.triggering_actor }}*\nVersion: *${{ steps.project_config.outputs.BUNDLE_VERSION }}*\nBranch: *${{ inputs.repository_client_branch }}*\nConfiguration: *${{ inputs.build_config_key }}*\n\n${{ steps.notification_content.outputs.build_app_download_info}}"
+                      "value": "${{ env.BUILD_OR_UPDATE }} <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|*#${{ github.run_number }}*> -  *${{ steps.build_status.outputs.build_status}}* - ${{ github.workflow }}\nUser: *${{ github.triggering_actor }}*\nVersion: *${{ steps.project_config.outputs.BUNDLE_VERSION }}*\nBranch: *${{ inputs.repository_client_branch }}*\nConfiguration: *${{ inputs.build_config_key }}*\n\n${{ steps.notification_content.outputs.build_app_download_info}}"
                     }
                   ]
                 }
               ]
             }
 
-      - name: Post message to Slack - Add build result to thread
+      - name: Post message to Slack - Add build/update result to thread
         if: always()
         uses: slackapi/slack-github-action@v1.23.0
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          BUILD_OR_UPDATE: ${{ steps.env.outputs.build_or_update }}
         with:
           channel-id: ${{ inputs.slack_channel_id }}
           payload: |
@@ -528,11 +567,11 @@ jobs:
               "thread_ts": "${{ steps.slackToken.outputs.thread_ts }}",
               "attachments": [
                 {
-                  "fallback": "Build finished\nStatus: *${{ steps.build_status.outputs.build_status }}*",
+                  "fallback": "${{ env.BUILD_OR_UPDATE }} finished\nStatus: *${{ steps.build_status.outputs.build_status }}*",
                   "color": "${{ steps.build_status.outputs.build_status_color}}",
                   "fields": [
                     {
-                      "value": "Build finished\nStatus: *${{ steps.build_status.outputs.build_status }}*"
+                      "value": "${{ env.BUILD_OR_UPDATE }} finished\nStatus: *${{ steps.build_status.outputs.build_status }}*"
                     }
                   ]
                 }
