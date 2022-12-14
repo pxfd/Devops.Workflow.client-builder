@@ -401,6 +401,7 @@ jobs:
         env:
           PLATFORM: ${{ steps.env.outputs.platform }}
           ENVIRONMENT: ${{ steps.env.outputs.environment }}
+          ARCHIVE_PATH: ${{ steps.project_config.outputs.archive_path }}
         run: |
           set -o pipefail
 
@@ -412,7 +413,7 @@ jobs:
           -projectPath ./ \
           -executeMethod ${{ fromJSON(steps.build_yaml.outputs.content).update_addressables_method }} \
           -buildConfigKey ${{ inputs.build_config_key }} \
-          -addressablesContentStateFilePaths "${{ fromJSON(steps.build_yaml.outputs.content).build_outputs_dir }}/archive/${{ env.PLATFORM }}/${{ env.ENVIRONMENT }}/${{ steps.project_config.outputs.BUNDLE_VERSION }}/${{ inputs.content_state_file }}" \
+          -addressablesContentStateFilePaths "${{ fromJSON(steps.build_yaml.outputs.content).build_outputs_dir }}/archive/${{ env.ARCHIVE_PATH }}/${{ inputs.content_state_file }}" \
           -addressablesBuildPath "../${{ inputs.content_dir }}/${{ env.ENVIRONMENT }}" \
           | tee -a "${{ fromJSON(steps.build_yaml.outputs.content).build_outputs_dir }}/logs/${{ inputs.build_config_key }}_run-${GITHUB_RUN_NUMBER}_att-${GITHUB_RUN_ATTEMPT}.log"
 
