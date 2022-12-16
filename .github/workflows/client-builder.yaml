@@ -525,7 +525,7 @@ jobs:
           ENVIRONMENT: ${{ steps.env.outputs.environment }}
           BUILD_NUMBER: ${{ steps.build_number.outputs.build_number }}
         run: |
-          curl -s -H 'Content-Type: application/json' --data-raw '{ "appUrlPath": "builds/${{ inputs.project }}/${{ env.PLATFORM }}/${{ env.ENVIRONMENT }}/${{ inputs.project }}-${{ steps.project_config.outputs.BUNDLE_VERSION }}-v${{ env.BUILD_NUMBER }}.apk", "appEnv": "${{ env.ENVIRONMENT }}", "actor": "${{ github.actor }}", "slackThreadId": "${{ steps.slackToken.outputs.thread_ts }}" }' -X POST "${{ inputs.tests_job }}" 2>&1
+          curl -s -H 'Content-Type: application/json' --data-raw '{ "appUrlPath": "builds/${{ inputs.project }}/${{ env.PLATFORM }}/${{ env.ENVIRONMENT }}/${{ inputs.project }}-${{ steps.project_config.outputs.BUNDLE_VERSION }}-v${{ env.BUILD_NUMBER }}.apk", "appEnv": "${{ env.ENVIRONMENT }}", "actor": "${{ github.triggering_actor }}", "slackThreadId": "${{ steps.slackToken.outputs.thread_ts }}" }' -X POST "${{ inputs.tests_job }}" 2>&1
 
       # Update with status
       - name: Post message to Slack - Update with build status
