@@ -97,7 +97,7 @@ jobs:
           PROJECT: ${{ inputs.project}}
           ENVIRONMENT: ${{ contains(inputs.build_config_key, 'prod') && 'Prod' || 'Dev' }}
           PLATFORM: ${{ contains(inputs.build_config_key, 'apple') && 'Apple' || 'Google' }}
-          BUILD_OR_UPDATE: ${{ update_addressables_only && 'Content Update' || 'Build' }}
+          BUILD_OR_UPDATE: ${{ inputs.update_addressables_only && 'Content Update' || 'Build' }}
         run: |
           echo "platform=${PLATFORM}" >> $GITHUB_OUTPUT
           echo "environment=${ENVIRONMENT}" >> $GITHUB_OUTPUT
