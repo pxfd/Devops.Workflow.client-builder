@@ -348,6 +348,8 @@ jobs:
       - name: Prepare tests
         if: ${{ inputs.include_alt_unity_tester }}
         working-directory: ${{ env.APP_DIR }}
+        env:
+          APP_DIR: ${{ steps.env.outputs.app_dir }}
         run: |
           echo "-define:ALTUNITYTESTER" > ./Assets/csc.rsp
 
