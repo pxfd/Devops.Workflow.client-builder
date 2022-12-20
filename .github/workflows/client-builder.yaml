@@ -499,7 +499,7 @@ jobs:
           git pull
           dvc add ${{ env.ENVIRONMENT }}/${{ fromJSON(steps.build_yaml.outputs.content).build_dvc_managed_addressables_dir }}
           git add -A
-          git diff-index --quiet HEAD || (git commit -m "[${{ github.workflow }}][${{ github.run_number }}] postBuildCommit"; git tag -f ${{ env.ENVIRONMENT }} HEAD; git push -f origin ${{ env.ENVIRONMENT }})
+          git diff-index --quiet HEAD || (git commit -m "[${{ github.workflow }}][${{ inputs.build_target }}][${{ github.run_number }}] postBuildCommit"; git tag -f ${{ env.ENVIRONMENT }} HEAD; git push -f origin ${{ env.ENVIRONMENT }})
           dvc push ${{ env.ENVIRONMENT }}/${{ fromJSON(steps.build_yaml.outputs.content).build_dvc_managed_addressables_dir }}
           git push
 
