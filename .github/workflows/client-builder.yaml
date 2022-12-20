@@ -313,6 +313,7 @@ jobs:
         env:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           APP_DIR: ${{ steps.env.outputs.app_dir }}
+          BUILD_OR_UPDATE: ${{ steps.env.outputs.build_or_update }}
         with:
           channel-id: ${{ inputs.slack_channel_id }}
           update-ts: "${{ steps.slackToken.outputs.ts }}"
