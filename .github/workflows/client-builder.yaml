@@ -14,6 +14,9 @@ on:
       slack_channel_id:
         required: true
         type: string
+      slack_user_id:
+        type: string
+        default: ''
       vault_addr:
         required: true
         type: string
@@ -406,6 +409,7 @@ jobs:
           ARCHIVE_PATH: ${{ steps.project_config.outputs.archive_path }}
         run: |
           set -o pipefail
+          mkdir -p "${{ fromJSON(steps.build_yaml.outputs.content).build_outputs_dir }}/logs"
 
           $UNITY_PATH  \
           -logfile - \
@@ -432,6 +436,7 @@ jobs:
           BUILD_NUMBER: ${{ steps.build_number.outputs.build_number }}
         run: |
           set -o pipefail
+          mkdir -p "${{ fromJSON(steps.build_yaml.outputs.content).build_outputs_dir }}/logs"
 
           $UNITY_PATH  \
           -logfile - \
@@ -527,7 +532,7 @@ jobs:
           ENVIRONMENT: ${{ steps.env.outputs.environment }}
           BUILD_NUMBER: ${{ steps.build_number.outputs.build_number }}
         run: |
-          curl -s -H 'Content-Type: application/json' --data-raw '{ "appUrlPath": "builds/${{ inputs.project }}/${{ env.PLATFORM }}/${{ env.ENVIRONMENT }}/${{ inputs.project }}-${{ steps.project_config.outputs.BUNDLE_VERSION }}-v${{ env.BUILD_NUMBER }}.apk", "appEnv": "${{ env.ENVIRONMENT }}", "actor": "${{ github.triggering_actor }}", "slackThreadId": "${{ steps.slackToken.outputs.thread_ts }}" }' -X POST "${{ inputs.tests_job }}" 2>&1
+          curl -s -H 'Content-Type: application/json' --data-raw '{ "appUrlPath": "builds/${{ inputs.project }}/${{ env.PLATFORM }}/${{ env.ENVIRONMENT }}/${{ inputs.project }}-${{ steps.project_config.outputs.BUNDLE_VERSION }}-v${{ env.BUILD_NUMBER }}.apk", "appEnv": "${{ env.ENVIRONMENT }}", "actor": "${{ github.triggering_actor }}", "slackUserId": "${{ inputs.slack_user_id }}", "slackThreadId": "${{ steps.slackToken.outputs.thread_ts }}" }' -X POST "${{ inputs.tests_job }}" 2>&1
 
       # Update with status
       - name: Post message to Slack - Update with build status
