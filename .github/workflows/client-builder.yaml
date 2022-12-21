@@ -408,6 +408,7 @@ jobs:
         if: ${{ steps.env.outputs.build_or_update == 'Content Update' }}
         working-directory: ${{ env.APP_DIR }}
         env:
+          UNITY_PATH: ${{ format('/Applications/Unity/Hub/Editor/{0}/Unity.app/Contents/MacOS/Unity', steps.project_config.outputs.UNITY_VERSION) }}
           PLATFORM: ${{ steps.env.outputs.platform }}
           ENVIRONMENT: ${{ steps.env.outputs.environment }}
           ARCHIVE_PATH: ${{ steps.project_config.outputs.archive_path }}
