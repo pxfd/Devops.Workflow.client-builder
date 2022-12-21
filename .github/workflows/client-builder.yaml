@@ -240,7 +240,7 @@ jobs:
 
       - name: S3 - Get build number
         working-directory: ${{ env.APP_DIR }}
-        if: ${{ inputs.build_number == '' }}
+        if: ${{ inputs.build_number == '' && steps.env.outputs.build_or_update == 'Build' }}
         env:
           PLATFORM: ${{ steps.env.outputs.platform }}
           APP_DIR: ${{ steps.env.outputs.app_dir }}
