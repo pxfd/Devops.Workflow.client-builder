@@ -538,7 +538,7 @@ jobs:
           ACTOR: ${{ inputs.actor != '' && inputs.actor || github.triggering_actor }}
           SLACK_USER_ID: ${{ inputs.slack_user_id != '' && inputs.slack_user_id || env.ACTOR }}
         run: |
-          curl -s -H 'Content-Type: application/json' --data-raw '{ "appUrlPath": "builds/${{ inputs.project }}/${{ env.PLATFORM }}/${{ env.ENVIRONMENT }}/${{ inputs.project }}-${{ steps.project_config.outputs.BUNDLE_VERSION }}-v${{ env.BUILD_NUMBER }}.apk", "appEnv": "${{ env.ENVIRONMENT }}", "actor": "${{ env.ACTOR }}", "slackUserId": "${{ env.SLACK_USER_ID }}", "slackThreadId": "${{ steps.slackToken.outputs.thread_ts }}" }' -X POST "${{ inputs.tests_job }}" 2>&1
+          curl -s -H 'Content-Type: application/json' --data-raw '{ "appUrlPath": "builds/${{ inputs.project }}/${{ env.PLATFORM }}/${{ env.ENVIRONMENT }}/${{ steps.project_config.outputs.BUNDLE_VERSION }}/${{ inputs.project }}-${{ steps.project_config.outputs.BUNDLE_VERSION }}-v${{ env.BUILD_NUMBER }}.apk", "appEnv": "${{ env.ENVIRONMENT }}", "actor": "${{ env.ACTOR }}", "slackUserId": "${{ env.SLACK_USER_ID }}", "slackThreadId": "${{ steps.slackToken.outputs.thread_ts }}" }' -X POST "${{ inputs.tests_job }}" 2>&1
 
       # Update with status
       - name: Post message to Slack - Update with build status
