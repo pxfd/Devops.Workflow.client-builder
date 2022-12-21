@@ -104,6 +104,7 @@ jobs:
           ENVIRONMENT: ${{ contains(inputs.build_config_key, 'prod') && 'Prod' || 'Dev' }}
           PLATFORM: ${{ contains(inputs.build_config_key, 'apple') && 'Apple' || 'Google' }}
           BUILD_OR_UPDATE: ${{ inputs.update_addressables_only && 'Content Update' || 'Build' }}
+          ACTOR: ${{ inputs.actor != '' && inputs.actor || github.triggering_actor }}
         run: |
           echo "platform=${PLATFORM}" >> $GITHUB_OUTPUT
           echo "environment=${ENVIRONMENT}" >> $GITHUB_OUTPUT
@@ -111,6 +112,7 @@ jobs:
           echo "cache_file=${{ inputs.cache_dir }}/${PROJECT}_${ENVIRONMENT}_${BRANCH//\//_}_${PLATFORM}.tar.zst" >> $GITHUB_OUTPUT
           echo "last_build_commit_file=${{ env.ENVIRONMENT }}_${BRANCH//\//_}_${{ env.PLATFORM }}_last_build_commit.txt" >> $GITHUB_OUTPUT
           echo "build_or_update=${BUILD_OR_UPDATE}" >> $GITHUB_OUTPUT
+          echo "actor=${ACTOR}" >> $GITHUB_OUTPUT
 
       # Start notification thread
       - name: Post message to Slack - Start thread
@@ -416,7 +418,7 @@ jobs:
           set -o pipefail
           mkdir -p "${{ fromJSON(steps.build_yaml.outputs.content).build_outputs_dir }}/logs"
 
-          $UNITY_PATH  \
+          ${{ env.UNITY_PATH }} \
           -logfile - \
           -nographics \
           -batchmode \
@@ -443,7 +445,7 @@ jobs:
           set -o pipefail
           mkdir -p "${{ fromJSON(steps.build_yaml.outputs.content).build_outputs_dir }}/logs"
 
-          $UNITY_PATH  \
+          ${{ env.UNITY_PATH }} \
           -logfile - \
           -nographics \
           -batchmode \
@@ -536,8 +538,8 @@ jobs:
           PLATFORM: ${{ steps.env.outputs.platform }}
           ENVIRONMENT: ${{ steps.env.outputs.environment }}
           BUILD_NUMBER: ${{ steps.build_number.outputs.build_number }}
-          ACTOR: ${{ inputs.actor != '' && inputs.actor || github.triggering_actor }}
-          SLACK_USER_ID: ${{ inputs.slack_user_id != '' && inputs.slack_user_id || env.ACTOR }}
+          ACTOR: ${{ steps.env.outputs.actor }}
+          SLACK_USER_ID: ${{ inputs.slack_user_id != '' && inputs.slack_user_id || steps.env.outputs.actor }}
         run: |
           curl -s -H 'Content-Type: application/json' --data-raw '{ "appUrlPath": "builds/${{ inputs.project }}/${{ env.PLATFORM }}/${{ env.ENVIRONMENT }}/${{ steps.project_config.outputs.BUNDLE_VERSION }}/${{ inputs.project }}-${{ steps.project_config.outputs.BUNDLE_VERSION }}-v${{ env.BUILD_NUMBER }}.apk", "appEnv": "${{ env.ENVIRONMENT }}", "actor": "${{ env.ACTOR }}", "slackUserId": "${{ env.SLACK_USER_ID }}", "slackThreadId": "${{ steps.slackToken.outputs.thread_ts }}" }' -X POST "${{ inputs.tests_job }}" 2>&1
 
