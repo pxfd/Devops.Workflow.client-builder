@@ -248,6 +248,8 @@ jobs:
           aws s3 cp "s3://${{ fromJSON(steps.build_yaml.outputs.content).s3_builds_bucket }}/builds/${{ inputs.project }}/builds_data/${{ env.PLATFORM }}_build_number.txt" build_number.txt
 
       # Increment and upload build number even if build fails
+      # or
+      # Set build number from content file if we updating addressables
       - name: S3 - Increment & update build number
         id: build_number
         working-directory: ${{ env.APP_DIR }}
@@ -255,16 +257,23 @@ jobs:
           PLATFORM: ${{ steps.env.outputs.platform }}
           APP_DIR: ${{ steps.env.outputs.app_dir }}
         run: |
-          if [[ "${{ inputs.build_number }}" != "" ]]; then
-            echo "${{ inputs.build_number }}" > build_number.txt
+          if [[ "${{ steps.env.outputs.build_or_update }}" == 'Build' ]]; then
+            if [[ "${{ inputs.build_number }}" != '' ]]; then
+              echo "${{ inputs.build_number }}" > build_number.txt
+            else
+              BUILD=$(cat build_number.txt)
+              BUILD=$(( build + 1 ))
+              echo ${BUILD} > build_number.txt
+            fi
+
+            aws s3 cp build_number.txt "s3://${{ fromJSON(steps.build_yaml.outputs.content).s3_builds_bucket }}/builds/${{ inputs.project }}/builds_data/${{ env.PLATFORM }}_build_number.txt"
+            BUILD_NUMBER=$(cat build_number.txt)
+
           else
-            build=$(cat build_number.txt)
-            build=$(( build + 1 ))
-            echo ${build} > build_number.txt
+            BUILD_NUMBER=$(echo "${{ inputs.content_state_file }}" | awk -F '-' '{gsub("[^[:digit:]]+","", $3); print $3}')
           fi
-          aws s3 cp build_number.txt "s3://${{ fromJSON(steps.build_yaml.outputs.content).s3_builds_bucket }}/builds/${{ inputs.project }}/builds_data/${{ env.PLATFORM }}_build_number.txt"
-          build_number=$(cat build_number.txt)
-          echo "build_number=${build_number}" >> $GITHUB_OUTPUT
+
+          echo "build_number=${BUILD_NUMBER}" >> $GITHUB_OUTPUT
 
       - name: S3 - Get last build commit
         working-directory: ${{ env.APP_DIR }}
