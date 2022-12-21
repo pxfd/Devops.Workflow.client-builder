@@ -414,6 +414,7 @@ jobs:
           PLATFORM: ${{ steps.env.outputs.platform }}
           ENVIRONMENT: ${{ steps.env.outputs.environment }}
           ARCHIVE_PATH: ${{ steps.project_config.outputs.archive_path }}
+          APP_DIR: ${{ steps.env.outputs.app_dir }}
         run: |
           set -o pipefail
           mkdir -p "${{ fromJSON(steps.build_yaml.outputs.content).build_outputs_dir }}/logs"
