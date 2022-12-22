@@ -262,7 +262,7 @@ jobs:
               echo "${{ inputs.build_number }}" > build_number.txt
             else
               BUILD=$(cat build_number.txt)
-              BUILD=$(( build + 1 ))
+              let BUILD+=1
               echo ${BUILD} > build_number.txt
             fi
 
