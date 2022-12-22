@@ -314,8 +314,8 @@ jobs:
           fi
 
           UNITY_VERSION=$(cat ./ProjectSettings/ProjectVersion.txt | grep m_EditorVersion: | grep -oE "([0-9]{1,}\\.)+[0-9abf]{1,}")
-          echo "UNITY_VERSION=${UNITY_VERSION}" >> $GITHUB_OUTPUT
-          echo "BUNDLE_VERSION=${BUNDLE_VERSION}" >> $GITHUB_OUTPUT
+          echo "unity_version=${UNITY_VERSION}" >> $GITHUB_OUTPUT
+          echo "bundle_version=${BUNDLE_VERSION}" >> $GITHUB_OUTPUT
           echo "archive_path=${{ env.PLATFORM }}/${{ env.ENVIRONMENT }}/${BUNDLE_VERSION}" >> $GITHUB_OUTPUT
 
       # Update slack with BUNDLE_VERSION
@@ -338,7 +338,7 @@ jobs:
                     {
                       "type": "mrkdwn",
                       "short": true,
-                      "value": "${{ env.BUILD_OR_UPDATE }} <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|*#${{ github.run_number }}*> - *STARTED* - ${{ github.workflow }}\n User: *${{ github.triggering_actor }}*\nVersion: *${{ steps.project_config.outputs.BUNDLE_VERSION }}*\nBranch: *${{ inputs.repository_client_branch }}*\nConfiguration: *${{ inputs.build_config_key }}*"
+                      "value": "${{ env.BUILD_OR_UPDATE }} <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|*#${{ github.run_number }}*> - *STARTED* - ${{ github.workflow }}\n User: *${{ github.triggering_actor }}*\nVersion: *${{ steps.project_config.outputs.bundle_version }}*\nBranch: *${{ inputs.repository_client_branch }}*\nConfiguration: *${{ inputs.build_config_key }}*"
                     }
                   ]
                 }
@@ -380,8 +380,8 @@ jobs:
           LAST_BUILD_COMMIT_FILE: ${{ steps.env.outputs.last_build_commit_file }}
         run: |
           if [ -f "${{ env.LAST_BUILD_COMMIT_FILE }}" ]; then
-            last_build_commit=$(cat ${{ env.LAST_BUILD_COMMIT_FILE }})
-            CHANGELOG_COMMITS="$((set -o pipefail; git log --oneline --no-merges ${last_build_commit}..HEAD | tr '"' "'" | while read LINE; do echo -n ${LINE}\\n; done) || echo "Unable to generate changelog from the commit ${last_build_commit}")"
+            LAST_BUILD_COMMIT=$(cat ${{ env.LAST_BUILD_COMMIT_FILE }})
+            CHANGELOG_COMMITS="$((set -o pipefail; git log --oneline --no-merges ${LAST_BUILD_COMMIT}..HEAD | tr '"' "'" | while read LINE; do echo -n ${LINE}\\n; done) || echo "Unable to generate changelog from the commit ${LAST_BUILD_COMMIT}")"
             echo "changelog_commits=${CHANGELOG_COMMITS}" >> $GITHUB_OUTPUT
 
             if [ -z "$(echo "${CHANGELOG_COMMITS}" | tr -d "[:blank:]")" ]; then
@@ -419,7 +419,7 @@ jobs:
         if: ${{ steps.env.outputs.build_or_update == 'Content Update' }}
         working-directory: ${{ env.APP_DIR }}
         env:
-          UNITY_PATH: ${{ format('/Applications/Unity/Hub/Editor/{0}/Unity.app/Contents/MacOS/Unity', steps.project_config.outputs.UNITY_VERSION) }}
+          UNITY_PATH: ${{ format('/Applications/Unity/Hub/Editor/{0}/Unity.app/Contents/MacOS/Unity', steps.project_config.outputs.unity_version) }}
           PLATFORM: ${{ steps.env.outputs.platform }}
           ENVIRONMENT: ${{ steps.env.outputs.environment }}
           ARCHIVE_PATH: ${{ steps.project_config.outputs.archive_path }}
@@ -438,14 +438,14 @@ jobs:
           -buildConfigKey ${{ inputs.build_config_key }} \
           -addressablesContentStateFilePaths "${{ fromJSON(steps.build_yaml.outputs.content).build_outputs_dir }}/archive/${{ env.ARCHIVE_PATH }}/${{ inputs.content_state_file }}" \
           -addressablesBuildPath "../${{ inputs.content_dir }}/${{ env.ENVIRONMENT }}" \
-          | tee -a "${{ fromJSON(steps.build_yaml.outputs.content).build_outputs_dir }}/logs/${{ inputs.build_config_key }}_run-${GITHUB_RUN_NUMBER}_att-${GITHUB_RUN_ATTEMPT}.log"
+          | tee -a "${{ fromJSON(steps.build_yaml.outputs.content).build_outputs_dir }}/logs/${{ github.workflow }}_${{ inputs.build_config_key }}_run-${GITHUB_RUN_NUMBER}_att-${GITHUB_RUN_ATTEMPT}.log"
 
       - name: Build
         if: ${{ steps.env.outputs.build_or_update == 'Build' }}
         working-directory: ${{ env.APP_DIR }}
         env:
           SECRETS_DIR: ${{ github.workspace }}/${{ inputs.secrets_dir }}
-          UNITY_PATH: ${{ format('/Applications/Unity/Hub/Editor/{0}/Unity.app/Contents/MacOS/Unity', steps.project_config.outputs.UNITY_VERSION) }}
+          UNITY_PATH: ${{ format('/Applications/Unity/Hub/Editor/{0}/Unity.app/Contents/MacOS/Unity', steps.project_config.outputs.unity_version) }}
           PLATFORM: ${{ steps.env.outputs.platform }}
           ENVIRONMENT: ${{ steps.env.outputs.environment }}
           APP_DIR: ${{ steps.env.outputs.app_dir }}
@@ -464,8 +464,8 @@ jobs:
           -executeMethod ${{ fromJSON(steps.build_yaml.outputs.content).build_execute_method }} \
           -exportPath "${{ fromJSON(steps.build_yaml.outputs.content).build_outputs_dir }}/export" \
           -archivePath "${{ fromJSON(steps.build_yaml.outputs.content).build_outputs_dir }}/archive/${{ env.ARCHIVE_PATH }}" \
-          -archivePublicPath "${{ fromJSON(steps.build_yaml.outputs.content).build_outputs_archive_public_path_prefix }}/${{ inputs.project }}/${{ env.PLATFORM }}/${{ env.ENVIRONMENT }}/${{ steps.project_config.outputs.BUNDLE_VERSION }}" \
-          -archivePublicDownloadPath "${{ fromJSON(steps.build_yaml.outputs.content).build_outputs_archive_public_download_path_prefix }}/${{ inputs.project }}/${{ env.PLATFORM }}/${{ env.ENVIRONMENT }}/${{ steps.project_config.outputs.BUNDLE_VERSION }}" \
+          -archivePublicPath "${{ fromJSON(steps.build_yaml.outputs.content).build_outputs_archive_public_path_prefix }}/${{ inputs.project }}/${{ env.PLATFORM }}/${{ env.ENVIRONMENT }}/${{ steps.project_config.outputs.bundle_version }}" \
+          -archivePublicDownloadPath "${{ fromJSON(steps.build_yaml.outputs.content).build_outputs_archive_public_download_path_prefix }}/${{ inputs.project }}/${{ env.PLATFORM }}/${{ env.ENVIRONMENT }}/${{ steps.project_config.outputs.bundle_version }}" \
           -buildConfigKey ${{ inputs.build_config_key }} \
           -developmentOptions ${{ inputs.development_options }} \
           -uploadOptions ${{ inputs.upload_options }} \
@@ -475,7 +475,7 @@ jobs:
           -notificationDataPath "../${{ fromJSON(steps.build_yaml.outputs.content).build_notification_file_name }}" \
           -addressablesBuildPath "../${{ inputs.content_dir }}/${{ env.ENVIRONMENT }}" \
           -buildNumber ${{ env.BUILD_NUMBER }} \
-          | tee -a "${{ fromJSON(steps.build_yaml.outputs.content).build_outputs_dir }}/logs/${{ inputs.build_config_key }}_run-${GITHUB_RUN_NUMBER}_att-${GITHUB_RUN_ATTEMPT}.log"
+          | tee -a "${{ fromJSON(steps.build_yaml.outputs.content).build_outputs_dir }}/logs/${{ github.workflow }}_${{ inputs.build_config_key }}_run-${GITHUB_RUN_NUMBER}_att-${GITHUB_RUN_ATTEMPT}.log"
 
       - name: S3 - Save & upload last build commit
         working-directory: ${{ env.APP_DIR }}
@@ -551,7 +551,7 @@ jobs:
           ACTOR: ${{ steps.env.outputs.actor }}
           SLACK_USER_ID: ${{ inputs.slack_user_id != '' && inputs.slack_user_id || steps.env.outputs.actor }}
         run: |
-          curl -s -H 'Content-Type: application/json' --data-raw '{ "appUrlPath": "builds/${{ inputs.project }}/${{ env.PLATFORM }}/${{ env.ENVIRONMENT }}/${{ steps.project_config.outputs.BUNDLE_VERSION }}/${{ inputs.project }}-${{ steps.project_config.outputs.BUNDLE_VERSION }}-v${{ env.BUILD_NUMBER }}.apk", "appEnv": "${{ env.ENVIRONMENT }}", "actor": "${{ env.ACTOR }}", "slackUserId": "${{ env.SLACK_USER_ID }}", "slackThreadId": "${{ steps.slackToken.outputs.thread_ts }}" }' -X POST "${{ inputs.tests_job }}" 2>&1
+          curl -s -H 'Content-Type: application/json' --data-raw '{ "appUrlPath": "builds/${{ inputs.project }}/${{ env.PLATFORM }}/${{ env.ENVIRONMENT }}/${{ steps.project_config.outputs.bundle_version }}/${{ inputs.project }}-${{ steps.project_config.outputs.bundle_version }}-v${{ env.BUILD_NUMBER }}.apk", "appEnv": "${{ env.ENVIRONMENT }}", "actor": "${{ env.ACTOR }}", "slackUserId": "${{ env.SLACK_USER_ID }}", "slackThreadId": "${{ steps.slackToken.outputs.thread_ts }}" }' -X POST "${{ inputs.tests_job }}" 2>&1
 
       # Update with status
       - name: Post message to Slack - Update with build status
@@ -574,7 +574,7 @@ jobs:
                     {
                       "type": "mrkdwn",
                       "short": true,
-                      "value": "${{ env.BUILD_OR_UPDATE }} <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|*#${{ github.run_number }}*> -  *${{ steps.build_status.outputs.build_status}}* - ${{ github.workflow }}\nUser: *${{ github.triggering_actor }}*\nVersion: *${{ steps.project_config.outputs.BUNDLE_VERSION }}*\nBranch: *${{ inputs.repository_client_branch }}*\nConfiguration: *${{ inputs.build_config_key }}*\n\n${{ steps.notification_content.outputs.build_app_download_info}}"
+                      "value": "${{ env.BUILD_OR_UPDATE }} <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|*#${{ github.run_number }}*> -  *${{ steps.build_status.outputs.build_status}}* - ${{ github.workflow }}\nUser: *${{ github.triggering_actor }}*\nVersion: *${{ steps.project_config.outputs.bundle_version }}*\nBranch: *${{ inputs.repository_client_branch }}*\nConfiguration: *${{ inputs.build_config_key }}*\n\n${{ steps.notification_content.outputs.build_app_download_info}}"
                     }
                   ]
                 }
