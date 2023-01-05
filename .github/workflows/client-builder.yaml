@@ -122,6 +122,7 @@ jobs:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           APP_DIR: ${{ steps.env.outputs.app_dir }}
           BUILD_OR_UPDATE: ${{ steps.env.outputs.build_or_update }}
+          USER: ${{ inputs.slack_user_id != '' && inputs.slack_user_id || steps.env.outputs.actor }}
         with:
           channel-id: ${{ inputs.slack_channel_id }}
           payload: |
@@ -134,7 +135,7 @@ jobs:
                     {
                       "type": "mrkdwn",
                       "short": true,
-                      "value": "${{ env.BUILD_OR_UPDATE }} <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|*#${{ github.run_number }}*> -  *STARTED* - ${{ github.workflow }}\n User: *${{ github.triggering_actor }}*\nBranch: *${{ inputs.repository_client_branch }}*\nConfiguration: *${{ inputs.build_config_key }}*"
+                      "value": "${{ env.BUILD_OR_UPDATE }} <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|*#${{ github.run_number }}*> -  *STARTED* - ${{ github.workflow }}\n User: *${{ env.USER }}*\nBranch: *${{ inputs.repository_client_branch }}*\nConfiguration: *${{ inputs.build_config_key }}*"
                     }
                   ]
                 }
@@ -325,6 +326,7 @@ jobs:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           APP_DIR: ${{ steps.env.outputs.app_dir }}
           BUILD_OR_UPDATE: ${{ steps.env.outputs.build_or_update }}
+          USER: ${{ inputs.slack_user_id != '' && inputs.slack_user_id || steps.env.outputs.actor }}
         with:
           channel-id: ${{ inputs.slack_channel_id }}
           update-ts: "${{ steps.slackToken.outputs.ts }}"
@@ -338,7 +340,7 @@ jobs:
                     {
                       "type": "mrkdwn",
                       "short": true,
-                      "value": "${{ env.BUILD_OR_UPDATE }} <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|*#${{ github.run_number }}*> - *STARTED* - ${{ github.workflow }}\n User: *${{ github.triggering_actor }}*\nVersion: *${{ steps.project_config.outputs.bundle_version }}*\nBranch: *${{ inputs.repository_client_branch }}*\nConfiguration: *${{ inputs.build_config_key }}*"
+                      "value": "${{ env.BUILD_OR_UPDATE }} <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|*#${{ github.run_number }}*> - *STARTED* - ${{ github.workflow }}\n User: *${{ env.USER }}*\nVersion: *${{ steps.project_config.outputs.bundle_version }}*\nBranch: *${{ inputs.repository_client_branch }}*\nConfiguration: *${{ inputs.build_config_key }}*"
                     }
                   ]
                 }
@@ -561,6 +563,7 @@ jobs:
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           APP_DIR: ${{ steps.env.outputs.app_dir }}
           BUILD_OR_UPDATE: ${{ steps.env.outputs.build_or_update }}
+          USER: ${{ inputs.slack_user_id != '' && inputs.slack_user_id || steps.env.outputs.actor }}
         with:
           channel-id: ${{ inputs.slack_channel_id }}
           update-ts: "${{ steps.slackToken.outputs.ts }}"
@@ -574,7 +577,7 @@ jobs:
                     {
                       "type": "mrkdwn",
                       "short": true,
-                      "value": "${{ env.BUILD_OR_UPDATE }} <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|*#${{ github.run_number }}*> -  *${{ steps.build_status.outputs.build_status}}* - ${{ github.workflow }}\nUser: *${{ github.triggering_actor }}*\nVersion: *${{ steps.project_config.outputs.bundle_version }}*\nBranch: *${{ inputs.repository_client_branch }}*\nConfiguration: *${{ inputs.build_config_key }}*\n\n${{ steps.notification_content.outputs.build_app_download_info}}"
+                      "value": "${{ env.BUILD_OR_UPDATE }} <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|*#${{ github.run_number }}*> -  *${{ steps.build_status.outputs.build_status}}* - ${{ github.workflow }}\nUser: *${{ env.USER }}*\nVersion: *${{ steps.project_config.outputs.bundle_version }}*\nBranch: *${{ inputs.repository_client_branch }}*\nConfiguration: *${{ inputs.build_config_key }}*\n\n${{ steps.notification_content.outputs.build_app_download_info}}"
                     }
                   ]
                 }
